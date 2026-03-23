@@ -5,23 +5,15 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>HeavyGuard AI</title>
     
-    <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
-    
-    <!-- React & Babel -->
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-
-    <!-- AI Core -->
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@latest/dist/coco-ssd.min.js"></script>
-
-    <!-- Markdown -->
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 
     <style>
-        /* --- iOS Style Reset & Base --- */
         body { 
             background-color: #000; 
             color: #fff;
@@ -32,39 +24,32 @@
             overscroll-behavior: none;
             -webkit-font-smoothing: antialiased;
         }
-        
         .safe-area-top { padding-top: max(44px, env(safe-area-inset-top)); }
         .safe-area-bottom { padding-bottom: max(34px, env(safe-area-inset-bottom)); }
         
-        /* --- Apple Glassmorphism --- */
         .ios-glass {
             background: rgba(20, 20, 20, 0.4);
             backdrop-filter: blur(20px);
             -webkit-backdrop-filter: blur(20px);
             border: 0.5px solid rgba(255, 255, 255, 0.1);
         }
-        
         .ios-glass-dark {
-            background: rgba(30, 30, 30, 0.8);
+            background: rgba(30, 30, 30, 0.85);
             backdrop-filter: blur(25px);
             -webkit-backdrop-filter: blur(25px);
             border: 1px solid rgba(255,255,255,0.1);
         }
-
-        /* --- Dynamic Island Alert --- */
         .dynamic-island {
             background: #000;
             border-radius: 36px;
             box-shadow: 0 4px 20px rgba(0,0,0,0.5);
             transition: all 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
         }
-        .dynamic-island.danger { background: #FF3B30; } /* iOS Red */
-        .dynamic-island.warning { background: #FF9500; } /* iOS Orange */
+        .dynamic-island.danger { background: #FF3B30; }
+        .dynamic-island.warning { background: #FF9500; }
 
-        /* --- Shutter Button --- */
         .shutter-button {
-            width: 72px;
-            height: 72px;
+            width: 72px; height: 72px;
             border-radius: 50%;
             border: 4px solid rgba(255, 255, 255, 1);
             padding: 3px;
@@ -72,8 +57,7 @@
             transition: transform 0.1s;
         }
         .shutter-inner {
-            width: 100%;
-            height: 100%;
+            width: 100%; height: 100%;
             background: #fff;
             border-radius: 50%;
             transition: all 0.2s;
@@ -82,676 +66,980 @@
         .shutter-button:active .shutter-inner { background: #e5e5e5; transform: scale(0.9); }
         .shutter-button:disabled { opacity: 0.5; }
 
-        /* --- Circle Icon Button (Dock) --- */
         .dock-btn {
-            width: 56px;
-            height: 56px;
+            width: 56px; height: 56px;
             border-radius: 50%;
             background: rgba(255, 255, 255, 0.15);
             backdrop-filter: blur(10px);
-            display: flex;
-            align-items: center;
-            justify-content: center;
+            display: flex; align-items: center; justify-content: center;
             transition: all 0.2s;
             border: 1px solid rgba(255,255,255,0.1);
         }
-        .dock-btn.active {
-            background: #007AFF;
-            color: white;
-            box-shadow: 0 0 15px rgba(0, 122, 255, 0.4);
-            border: none;
-        }
+        .dock-btn.active { background: #007AFF; box-shadow: 0 0 15px rgba(0, 122, 255, 0.4); border: none; }
         .dock-btn:active { transform: scale(0.92); }
 
-        /* --- Chat Bubbles --- */
+        /* ── 채팅 버블 ── */
         .chat-bubble-user {
-            background: #007AFF;
-            color: white;
+            background: #007AFF; color: white;
             border-radius: 18px 18px 2px 18px;
-            padding: 10px 14px;
-            max-width: 80%;
-            align-self: flex-end;
-            box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+            padding: 10px 14px; max-width: 80%; align-self: flex-end;
         }
         .chat-bubble-ai {
-            background: #2C2C2E;
-            color: #fff;
+            background: #2C2C2E; color: #fff;
             border-radius: 18px 18px 18px 2px;
-            padding: 10px 14px;
-            max-width: 80%;
-            align-self: flex-start;
+            padding: 10px 14px; max-width: 80%; align-self: flex-start;
             border: 1px solid rgba(255,255,255,0.1);
         }
+        /* 마크다운 렌더링 스타일 (채팅/보고서 공용) */
+        .md-content h1, .md-content h2, .md-content h3 { font-weight: 700; margin: 8px 0 4px; }
+        .md-content h2 { font-size: 1.1rem; }
+        .md-content h3 { font-size: 0.95rem; }
+        .md-content ul { list-style: disc; padding-left: 1.2rem; margin: 4px 0; }
+        .md-content ol { list-style: decimal; padding-left: 1.2rem; margin: 4px 0; }
+        .md-content li { margin: 2px 0; }
+        .md-content p { margin: 4px 0; line-height: 1.55; }
+        .md-content strong { font-weight: 700; }
+        .md-content code { background: rgba(255,255,255,0.1); border-radius: 4px; padding: 1px 5px; font-size: 0.85em; }
+        .md-content hr { border-color: rgba(255,255,255,0.1); margin: 8px 0; }
+        /* 보고서 마크다운 (흰 배경) */
+        .md-report h1, .md-report h2, .md-report h3 { font-weight: 700; color: #111; margin: 10px 0 5px; }
+        .md-report h2 { font-size: 1.05rem; color: #1d4ed8; border-bottom: 1px solid #e5e7eb; padding-bottom: 4px; }
+        .md-report h3 { font-size: 0.95rem; color: #374151; }
+        .md-report ul { list-style: disc; padding-left: 1.4rem; margin: 4px 0; }
+        .md-report ol { list-style: decimal; padding-left: 1.4rem; margin: 4px 0; }
+        .md-report li { margin: 3px 0; font-size: 0.88rem; line-height: 1.5; color: #374151; }
+        .md-report p { margin: 5px 0; font-size: 0.88rem; line-height: 1.55; color: #374151; }
+        .md-report strong { font-weight: 700; color: #111; }
+        .md-report code { background: #f3f4f6; border-radius: 4px; padding: 1px 5px; font-size: 0.82em; color: #d97706; }
+        .md-report hr { border-color: #e5e7eb; margin: 10px 0; }
+        .md-report blockquote { border-left: 3px solid #007AFF; padding-left: 10px; color: #6b7280; font-style: italic; }
 
-        /* --- Animations --- */
-        @keyframes scan-line {
-            0% { top: 0%; opacity: 0; }
-            10% { opacity: 0.5; }
-            90% { opacity: 0.5; }
-            100% { top: 100%; opacity: 0; }
-        }
-        .scanner {
-            position: absolute; left: 0; width: 100%; height: 2px;
-            background: #007AFF;
-            box-shadow: 0 0 10px #007AFF;
-            animation: scan-line 2s linear infinite;
-        }
+        /* 위험도 배지 */
+        .badge-critical { background: #FEE2E2; color: #B91C1C; border: 1px solid #FECACA; }
+        .badge-high     { background: #FEF3C7; color: #92400E; border: 1px solid #FDE68A; }
+        .badge-medium   { background: #DBEAFE; color: #1E40AF; border: 1px solid #BFDBFE; }
+        .badge-low      { background: #D1FAE5; color: #065F46; border: 1px solid #A7F3D0; }
 
-        /* --- Utils --- */
-        .hide-scrollbar::-webkit-scrollbar { display: none; }
-        button { -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
-        
-        /* Range Slider */
         input[type=range] { -webkit-appearance: none; background: transparent; }
         input[type=range]::-webkit-slider-thumb {
             -webkit-appearance: none; height: 18px; width: 18px;
             border-radius: 50%; background: #fff; box-shadow: 0 2px 6px rgba(0,0,0,0.3); margin-top: -8px;
         }
-        input[type=range]::-webkit-slider-runnable-track {
-            width: 100%; height: 2px; background: rgba(255,255,255,0.3);
-        }
+        input[type=range]::-webkit-slider-runnable-track { width: 100%; height: 2px; background: rgba(255,255,255,0.3); }
 
-        /* Print */
+        .hide-scrollbar::-webkit-scrollbar { display: none; }
+        button { -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
+
+        @keyframes slideUp { from { transform: translateY(100%); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+        .animate-slide-up { animation: slideUp 0.3s cubic-bezier(0.25, 0.8, 0.25, 1) forwards; }
+        .animate-spin { animation: spin 1s linear infinite; }
+
         @media print {
             body * { visibility: hidden; }
-            #report-section, #report-section * { visibility: visible; }
-            #report-section { position: fixed; left: 0; top: 0; width: 100%; height: 100%; background: white; color: black; z-index: 9999; }
-            .no-print { display: none !important; }
+            #print-report, #print-report * { visibility: visible; }
+            #print-report { position: fixed; left: 0; top: 0; width: 100%; height: auto; background: white; color: black; z-index: 9999; overflow: auto; }
         }
     </style>
 </head>
 <body>
     <div id="root" class="h-full w-full"></div>
 
-    <script type="text/babel">
-        const { useState, useEffect, useRef } = React;
-        
-        // --- Icons (Lucide) ---
-        const Icon = ({ children, size = 24, className = "", ...props }) => (
-            <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} {...props}>{children}</svg>
-        );
-        const Icons = {
-            Eye: (p) => <Icon {...p}><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></Icon>,
-            EyeOff: (p) => <Icon {...p}><path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/><path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"/><line x1="2" x2="22" y1="2" y2="22"/></Icon>,
-            Camera: (p) => <Icon {...p}><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></Icon>,
-            Settings: (p) => <Icon {...p}><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.47a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></Icon>,
-            X: (p) => <Icon {...p}><path d="M18 6 6 18"/><path d="m6 6 12 12"/></Icon>,
-            AlertTriangle: (p) => <Icon {...p}><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></Icon>,
-            Siren: (p) => <Icon {...p}><path d="M7 18v-6a5 5 0 1 1 10 0v6"/><path d="M5 21a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2"/><path d="M21 11.343l-3.34-1.67"/><path d="M3 11.343l3.34-1.67"/></Icon>,
-            Flash: (p) => <Icon {...p}><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></Icon>,
-            FlashOff: (p) => <Icon {...p}><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/><line x1="1" y1="1" x2="23" y2="23"/></Icon>,
-            RotateCcw: (p) => <Icon {...p}><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></Icon>,
-            Loader: (p) => <Icon {...p}><path d="M21 12a9 9 0 1 1-6.219-8.56"/></Icon>,
-            Sparkles: (p) => <Icon {...p}><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/></Icon>,
-            FileText: (p) => <Icon {...p}><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/></Icon>,
-            Printer: (p) => <Icon {...p}><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></Icon>,
-            ZoomIn: (p) => <Icon {...p}><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></Icon>,
-            Key: (p) => <Icon {...p}><circle cx="7.5" cy="15.5" r="5.5"/><path d="m21 2-9.6 9.6"/><path d="m15.5 7.5 3 3L22 7l-3-3"/></Icon>,
-            MessageSquare: (p) => <Icon {...p}><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></Icon>,
-            Send: (p) => <Icon {...p}><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></Icon>,
-            Ghost: (p) => <Icon {...p}><path d="M9 10h.01"/><path d="M15 10h.01"/><path d="M12 2a8 8 0 0 0-8 8v12l3-3 2.5 2.5L12 19l2.5 2.5L17 19l3 3V10a8 8 0 0 0-8-8z"/></Icon>
+<script type="text/babel">
+    const { useState, useEffect, useRef, useCallback } = React;
+
+    // ─── 수정 1: 모델명 상수화 (gemini-2.5-flash-preview-09-2025 → gemini-2.0-flash) ───
+    // 원본 코드의 모델명은 존재하지 않는 모델명이었음
+    const GEMINI_MODEL = 'gemini-3-flash-preview-05-20';
+
+    // ─── Icon 컴포넌트 ───
+    const Icon = ({ children, size = 24, className = "", ...props }) => (
+        <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24"
+             fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+             className={className} {...props}>{children}</svg>
+    );
+    const Icons = {
+        Eye:           (p) => <Icon {...p}><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></Icon>,
+        EyeOff:        (p) => <Icon {...p}><path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/><path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"/><line x1="2" x2="22" y1="2" y2="22"/></Icon>,
+        Camera:        (p) => <Icon {...p}><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></Icon>,
+        Settings:      (p) => <Icon {...p}><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.47a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></Icon>,
+        X:             (p) => <Icon {...p}><path d="M18 6 6 18"/><path d="m6 6 12 12"/></Icon>,
+        AlertTriangle: (p) => <Icon {...p}><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></Icon>,
+        Siren:         (p) => <Icon {...p}><path d="M7 18v-6a5 5 0 1 1 10 0v6"/><path d="M5 21a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2"/><path d="M21 11.343l-3.34-1.67"/><path d="M3 11.343l3.34-1.67"/></Icon>,
+        Flash:         (p) => <Icon {...p}><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></Icon>,
+        FlashOff:      (p) => <Icon {...p}><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/><line x1="1" y1="1" x2="23" y2="23"/></Icon>,
+        RotateCcw:     (p) => <Icon {...p}><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></Icon>,
+        Loader:        (p) => <Icon {...p} className={(p.className||'') + ' animate-spin'}><path d="M21 12a9 9 0 1 1-6.219-8.56"/></Icon>,
+        Sparkles:      (p) => <Icon {...p}><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/></Icon>,
+        FileText:      (p) => <Icon {...p}><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/></Icon>,
+        Printer:       (p) => <Icon {...p}><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></Icon>,
+        Key:           (p) => <Icon {...p}><circle cx="7.5" cy="15.5" r="5.5"/><path d="m21 2-9.6 9.6"/><path d="m15.5 7.5 3 3L22 7l-3-3"/></Icon>,
+        MessageSquare: (p) => <Icon {...p}><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></Icon>,
+        Send:          (p) => <Icon {...p}><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></Icon>,
+        Shield:        (p) => <Icon {...p}><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></Icon>,
+        CheckCircle:   (p) => <Icon {...p}><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></Icon>,
+        ChevronDown:   (p) => <Icon {...p}><polyline points="6 9 12 15 18 9"/></Icon>,
+        ChevronRight:  (p) => <Icon {...p}><polyline points="9 18 15 12 9 6"/></Icon>,
+        Info:          (p) => <Icon {...p}><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></Icon>,
+        Download:      (p) => <Icon {...p}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></Icon>,
+        Image:         (p) => <Icon {...p}><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></Icon>,
+    };
+
+    // ─── Gemini API 호출 (수정 2: 모델명, retry 로직 유지) ───
+    async function callGeminiAPI(prompt, base64Image, apiKey, jsonMode = false) {
+        if (!apiKey) return { success: false, errorType: 'AUTH', message: "API 키가 필요합니다." };
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`;
+        const parts = [{ text: prompt }];
+        if (base64Image) parts.push({ inlineData: { mimeType: "image/jpeg", data: base64Image.split(',')[1] } });
+        const requestBody = {
+            contents: [{ parts }],
+            ...(jsonMode ? { generationConfig: { responseMimeType: "application/json" } } : {})
         };
 
-        // --- Gemini API Wrapper ---
-        async function callGeminiAPI(prompt, base64Image, apiKey) {
-            if (!apiKey) return { success: false, errorType: 'AUTH', message: "API 키가 필요합니다." };
-            const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
-            const requestBody = { contents: [{ parts: [{ text: prompt }, ...(base64Image ? [{ inlineData: { mimeType: "image/jpeg", data: base64Image.split(',')[1] } }] : []) ] }] };
-            
-            let retries = 0; const maxRetries = 2;
-            while (retries <= maxRetries) {
-                try {
-                    const response = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(requestBody) });
-                    const data = await response.json();
-                    if (!response.ok) {
-                        if (response.status === 400 || response.status === 403) return { success: false, errorType: 'AUTH', message: "API 키 오류" };
-                        throw new Error(data.error?.message || "HTTP Error");
-                    }
-                    return { success: true, text: data.candidates?.[0]?.content?.parts?.[0]?.text || "답변 불가" };
-                } catch (error) {
-                    retries++;
-                    if (retries > maxRetries) return { success: false, errorType: 'NETWORK', message: "연결 실패" };
-                    await new Promise(r => setTimeout(r, 1000 * retries));
+        let retries = 0;
+        while (retries <= 2) {
+            try {
+                const response = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(requestBody) });
+                const data = await response.json();
+                if (!response.ok) {
+                    if (response.status === 400 || response.status === 403)
+                        return { success: false, errorType: 'AUTH', message: `API 키 오류 (${response.status}): ${data.error?.message}` };
+                    throw new Error(data.error?.message || `HTTP ${response.status}`);
                 }
+                const text = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+                return { success: true, text };
+            } catch (err) {
+                retries++;
+                if (retries > 2) return { success: false, errorType: 'NETWORK', message: `연결 실패: ${err.message}` };
+                await new Promise(r => setTimeout(r, 1000 * retries));
             }
         }
+    }
 
-        const App = () => {
-            const [monitoringOn, setMonitoringOn] = useState(true);
-            const [apiKey, setApiKey] = useState('');
-            const [isKeyModalOpen, setIsKeyModalOpen] = useState(false);
-            
-            // Core States
-            const [modelLoaded, setModelLoaded] = useState(false);
-            const [alertState, setAlertState] = useState(null); 
-            const [warningMsg, setWarningMsg] = useState('');
-            const [isAnalyzing, setIsAnalyzing] = useState(false);
-            const [analysisResult, setAnalysisResult] = useState(null);
-            const [showReport, setShowReport] = useState(false);
-            const [capturedImage, setCapturedImage] = useState(null);
+    // ─── 보고서 컴포넌트 (수정 3: 완전히 재설계된 보고서 UI) ───
+    // 원본: marked.parse + dangerouslySetInnerHTML(prose 클래스만) → 스타일 없이 날 것 텍스트
+    // 개선: JSON 구조화 응답 → 위험도 배지, 카드형 항목, 법규 태그, 조치 체크리스트
+    const RiskLevelBadge = ({ level }) => {
+        const map = {
+            '매우위험': { cls: 'badge-critical', emoji: '🔴' },
+            '위험':     { cls: 'badge-high',     emoji: '🟠' },
+            '주의':     { cls: 'badge-medium',   emoji: '🟡' },
+            '양호':     { cls: 'badge-low',      emoji: '🟢' },
+        };
+        const info = map[level] || map['주의'];
+        return (
+            <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm font-bold ${info.cls}`}>
+                {info.emoji} {level}
+            </span>
+        );
+    };
 
-            // Chat Assistant State
-            const [showChat, setShowChat] = useState(false);
-            const [chatMessages, setChatMessages] = useState([
-                { sender: 'ai', text: '안녕하세요! KOSHA 안전 가이드 비서입니다. 작업 현장 안전 수칙이나 기준에 대해 무엇이든 물어보세요. (예: 비계 설치 기준, 밀폐공간 수칙)' }
-            ]);
-            const [chatInput, setChatInput] = useState('');
-            const [isChatLoading, setIsChatLoading] = useState(false);
-            const chatEndRef = useRef(null);
+    const severityConfig = {
+        high:   { label: '고위험', cls: 'bg-red-100 text-red-700 border-red-200',   bar: 'bg-red-500',    barW: 'w-full' },
+        medium: { label: '중위험', cls: 'bg-yellow-100 text-yellow-700 border-yellow-200', bar: 'bg-yellow-400', barW: 'w-2/3' },
+        low:    { label: '저위험', cls: 'bg-blue-100 text-blue-700 border-blue-200', bar: 'bg-blue-400',   barW: 'w-1/3' },
+    };
 
-            // Camera Features
-            const [videoTrack, setVideoTrack] = useState(null);
-            const [capabilities, setCapabilities] = useState({});
-            const [zoom, setZoom] = useState(1);
-            const [flashOn, setFlashOn] = useState(false);
-            const [cameras, setCameras] = useState([]);
-            const [currentCameraIdx, setCurrentCameraIdx] = useState(0);
+    const categoryEmoji = {
+        '추락': '🪜', '협착': '⚙️', '감전': '⚡', '화재': '🔥',
+        '전도': '🏗️', '충돌': '🚧', '폭발': '💥', '질식': '😮‍💨', '기타': '⚠️'
+    };
 
-            const videoRef = useRef(null);
-            const canvasRef = useRef(null);
-            const modelRef = useRef(null);
-            const requestRef = useRef(null);
-            const streamRef = useRef(null);
-            
-            // Tracking State (Persistence)
-            const trackedObjects = useRef([]); // Stores {id, label, bbox, life, streak, color}
+    const HazardCard = ({ hazard, idx }) => {
+        const [open, setOpen] = useState(idx === 0);
+        const sc = severityConfig[hazard.severity] || severityConfig.medium;
+        const emoji = categoryEmoji[hazard.category] || '⚠️';
 
-            // Init
-            useEffect(() => {
-                const storedKey = localStorage.getItem('gemini_api_key');
-                if (storedKey) setApiKey(storedKey);
-                else setTimeout(() => setIsKeyModalOpen(true), 1500);
-
-                cocoSsd.load({ base: 'mobilenet_v2' }).then(model => {
-                    modelRef.current = model;
-                    setModelLoaded(true);
-                    startCamera(); // Start camera first
-                });
-
-                return () => cancelAnimationFrame(requestRef.current);
-            }, []);
-
-            // Scroll Chat to Bottom
-            useEffect(() => {
-                chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-            }, [chatMessages, showChat]);
-
-            // Camera List Updater (Ensures we get list AFTER permission)
-            const updateCameras = async () => {
-                try {
-                    const devices = await navigator.mediaDevices.enumerateDevices();
-                    const vids = devices.filter(d => d.kind === 'videoinput');
-                    // Filter for back cameras if possible, or just use all
-                    let backs = vids.filter(d => /back|rear|environment/i.test(d.label));
-                    // If no labels (permission issue) or no specific back cam found, use all vids
-                    setCameras(backs.length > 0 ? backs : vids);
-                } catch(e) {
-                    console.error("Enumerate Error", e);
-                }
-            };
-
-            const startCamera = async (deviceId = null) => {
-                if (streamRef.current) streamRef.current.getTracks().forEach(t => t.stop());
-                try {
-                    const stream = await navigator.mediaDevices.getUserMedia({
-                        video: {
-                            deviceId: deviceId ? { exact: deviceId } : undefined,
-                            facingMode: deviceId ? undefined : 'environment',
-                            width: { ideal: 1920 }, height: { ideal: 1080 }
-                        }, audio: false
-                    });
-                    streamRef.current = stream;
-                    if (videoRef.current) {
-                        videoRef.current.srcObject = stream;
-                        const track = stream.getVideoTracks()[0];
-                        setVideoTrack(track);
-                        
-                        // Update capabilities and camera list after permission granted
-                        setTimeout(() => {
-                            setCapabilities(track.getCapabilities ? track.getCapabilities() : {});
-                            setZoom(1); setFlashOn(false);
-                            updateCameras(); // Refresh camera list here
-                        }, 500);
-                        
-                        videoRef.current.onloadeddata = predictLoop;
-                    }
-                } catch (e) { console.error(e); }
-            };
-
-            const toggleFlash = async () => {
-                if (!videoTrack) return;
-                try { await videoTrack.applyConstraints({ advanced: [{ torch: !flashOn }] }); setFlashOn(!flashOn); } catch(e){}
-            };
-
-            const switchCamera = () => {
-                if (cameras.length < 2) return;
-                const nextIdx = (currentCameraIdx + 1) % cameras.length;
-                setCurrentCameraIdx(nextIdx);
-                startCamera(cameras[nextIdx].deviceId);
-            };
-
-            const handleZoom = async (e) => {
-                const z = parseFloat(e.target.value);
-                setZoom(z);
-                if (videoTrack) try { await videoTrack.applyConstraints({ advanced: [{ zoom: z }] }); } catch(e){}
-            };
-
-            // Calculate IoU (Intersection over Union) for tracking
-            const getIoU = (bbox1, bbox2) => {
-                const x1 = Math.max(bbox1[0], bbox2[0]);
-                const y1 = Math.max(bbox1[1], bbox2[1]);
-                const x2 = Math.min(bbox1[0] + bbox1[2], bbox2[0] + bbox2[2]);
-                const y2 = Math.min(bbox1[1] + bbox1[3], bbox2[1] + bbox2[3]);
-                const intersection = Math.max(0, x2 - x1) * Math.max(0, y2 - y1);
-                const area1 = bbox1[2] * bbox1[3];
-                const area2 = bbox2[2] * bbox2[3];
-                return intersection / (area1 + area2 - intersection);
-            };
-
-            const predictLoop = async () => {
-                if (!modelRef.current || !videoRef.current || !canvasRef.current) return;
-                if (videoRef.current.readyState < 2) { requestRef.current = requestAnimationFrame(predictLoop); return; }
-
-                const ctx = canvasRef.current.getContext('2d');
-                if (canvasRef.current.width !== videoRef.current.videoWidth) {
-                    canvasRef.current.width = videoRef.current.videoWidth;
-                    canvasRef.current.height = videoRef.current.videoHeight;
-                }
-                ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
-
-                if (!monitoringOn) {
-                    setAlertState(null); setWarningMsg(''); 
-                    trackedObjects.current = []; // Reset tracking
-                    requestRef.current = requestAnimationFrame(predictLoop); return;
-                }
-
-                // 🚨 초고감도 설정: 0.15 (15%) 이상이면 무조건 감지
-                // 파티션 뒤 머리 등 작은 특징을 잡기 위해 임계값을 극한으로 낮춤
-                const predictions = await modelRef.current.detect(videoRef.current, undefined, 0.15);
-                
-                // --- Tracking Logic Start ---
-                const MAX_LIFE = 15; 
-                // Streak 제한 제거: 1프레임만 감지되어도 즉시 표시 (즉답성 강화)
-                const currentTracks = trackedObjects.current;
-                const newTracks = [];
-                
-                // 1. Mark existing tracks as unmatched
-                currentTracks.forEach(t => t.matched = false);
-
-                // 2. Process current detections
-                predictions.forEach(pred => {
-                    let label = pred.class;
-                    let color = '#34C759'; 
-
-                    // 15%~50% 사이의 낮은 신뢰도도 '사람'이면 무조건 표시
-                    if (label === 'person') { label = '근로자'; color = '#007AFF'; }
-                    else if (['truck', 'car', 'bus'].includes(label)) { label = '장비'; color = '#FF9500'; }
-                    else return; // Skip non-targets
-
-                    // Try to match with existing tracks
-                    let matched = false;
-                    for (let i = 0; i < currentTracks.length; i++) {
-                        const track = currentTracks[i];
-                        // IOU Threshold도 0.3 -> 0.2로 낮춰서 빠르게 움직여도 놓치지 않게 함
-                        if (!track.matched && track.label === label && getIoU(track.bbox, pred.bbox) > 0.2) {
-                            track.bbox = pred.bbox;
-                            track.life = MAX_LIFE;
-                            track.streak = (track.streak || 0) + 1;
-                            track.isGhost = false;
-                            track.matched = true;
-                            matched = true;
-                            break;
-                        }
-                    }
-
-                    // If not matched, create new track
-                    if (!matched) {
-                        newTracks.push({
-                            id: Math.random(),
-                            label: label,
-                            color: color,
-                            bbox: pred.bbox,
-                            life: MAX_LIFE,
-                            streak: 1,
-                            isGhost: false,
-                            matched: true
-                        });
-                    }
-                });
-
-                // 3. Update existing tracks (Ghosting)
-                currentTracks.forEach(track => {
-                    if (track.matched) {
-                        newTracks.push(track);
-                    } else {
-                        // Unmatched: Candidate for Ghost
-                        // 사람(근로자)은 한 번이라도 감지되었으면(streak >= 1) 잔상을 남김
-                        // 장비는 오탐을 줄이기 위해 최소 3번은 감지되었어야 잔상 남김
-                        const minStreakForGhost = track.label === '근로자' ? 1 : 3;
-                        
-                        if (track.streak >= minStreakForGhost) {
-                            track.life -= 1;
-                            if (track.life > 0) {
-                                track.isGhost = true;
-                                newTracks.push(track);
-                            }
-                        }
-                    }
-                });
-
-                trackedObjects.current = newTracks;
-                // --- Tracking Logic End ---
-
-                // Drawing and Risk Analysis
-                let pCount = 0, eCount = 0;
-
-                trackedObjects.current.forEach(track => {
-                    // 사람인 경우 즉시 표시 (Streak 조건 없음)
-                    // 장비인 경우 3프레임 이상일 때만 표시 (오탐 방지)
-                    if (track.label === '장비' && track.streak < 3) return;
-
-                    const [x, y, w, h] = track.bbox;
-                    
-                    if (track.label === '근로자') pCount++;
-                    if (track.label === '장비') eCount++;
-
-                    ctx.save();
-                    if (track.isGhost) {
-                        ctx.globalAlpha = 0.5; // 잔상은 좀 더 흐리게
-                        ctx.setLineDash([4, 4]); 
-                        ctx.strokeStyle = '#FFFFFF'; 
-                    } else {
-                        ctx.globalAlpha = 1.0;
-                        ctx.setLineDash([]);
-                        ctx.strokeStyle = track.color;
-                    }
-
-                    ctx.shadowColor = "rgba(0,0,0,0.8)"; ctx.shadowBlur = 6;
-                    ctx.lineWidth = 4;
-                    ctx.strokeRect(x, y, w, h);
-
-                    ctx.fillStyle = track.isGhost ? '#666' : track.color;
-                    // 낮은 신뢰도로 감지된 경우 '?' 표시 추가
-                    const text = track.label + (track.isGhost ? ' (가림)' : '');
-                    const tw = ctx.measureText(text).width;
-                    ctx.fillRect(x, y - 30, tw + 20, 30);
-                    
-                    ctx.fillStyle = '#fff';
-                    ctx.font = '600 16px -apple-system';
-                    ctx.fillText(text, x + 10, y - 9);
-                    ctx.restore();
-                });
-
-                if (pCount > 0 && eCount > 0) { setAlertState('danger'); setWarningMsg('⚠️ 충돌 위험: 장비 접근'); }
-                else if (eCount > 0) { setAlertState('warning'); setWarningMsg('주의: 장비 가동 중'); }
-                else { setAlertState(null); setWarningMsg(''); }
-
-                requestRef.current = requestAnimationFrame(predictLoop);
-            };
-
-            const analyzeSnapshot = async () => {
-                if (!apiKey) { setIsKeyModalOpen(true); return; }
-                setIsAnalyzing(true);
-                
-                const flashDiv = document.createElement('div');
-                flashDiv.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:white;z-index:9999;opacity:0.8;transition:opacity 0.2s';
-                document.body.appendChild(flashDiv);
-                setTimeout(() => { flashDiv.style.opacity = '0'; setTimeout(() => flashDiv.remove(), 200) }, 50);
-
-                try {
-                    const canvas = document.createElement('canvas');
-                    canvas.width = videoRef.current.videoWidth;
-                    canvas.height = videoRef.current.videoHeight;
-                    canvas.getContext('2d').drawImage(videoRef.current, 0, 0);
-                    const base64Img = canvas.toDataURL('image/jpeg', 0.8);
-                    setCapturedImage(base64Img);
-
-                    const prompt = `KOSHA(안전보건공단) 기준 현장 안전 정밀 진단. 
-                    핵심 점검: 1.장비전도/협착 2.추락/개구부 3.안전고리/보호구 4.화재/감전. 
-                    결과는 마크다운 보고서 형식으로 작성.`;
-                    
-                    const result = await callGeminiAPI(prompt, base64Img, apiKey);
-                    if (result.success) { setAnalysisResult(result.text); setShowReport(true); }
-                    else { alert(result.message); if (result.errorType==='AUTH') setIsKeyModalOpen(true); }
-                } catch (e) { alert("분석 오류"); }
-                setIsAnalyzing(false);
-            };
-
-            const handleChatSubmit = async (e) => {
-                e.preventDefault();
-                if (!chatInput.trim() || isChatLoading) return;
-                
-                const userMsg = chatInput;
-                setChatMessages(prev => [...prev, { sender: 'user', text: userMsg }]);
-                setChatInput('');
-                setIsChatLoading(true);
-
-                if (!apiKey) {
-                    setChatMessages(prev => [...prev, { sender: 'ai', text: 'API 키 설정이 필요합니다. 우측 상단 설정 버튼을 눌러주세요.' }]);
-                    setIsChatLoading(false);
-                    return;
-                }
-
-                const prompt = `당신은 대한민국 KOSHA(안전보건공단) 가이드를 준수하는 건설 안전 전문가 AI 챗봇입니다. 
-                사용자의 질문: "${userMsg}"
-                답변은 현장 작업자가 이해하기 쉽게 KOSHA 기준, 법적 기준, 권장 안전 수칙을 근거로 간결하게 설명해주세요.`;
-
-                const result = await callGeminiAPI(prompt, null, apiKey);
-                const aiText = result.success ? result.text : `오류 발생: ${result.message}`;
-                
-                setChatMessages(prev => [...prev, { sender: 'ai', text: aiText }]);
-                setIsChatLoading(false);
-            };
-
-            return (
-                <div className="relative h-full w-full bg-black">
-                    {/* Viewfinder */}
-                    <video ref={videoRef} autoPlay playsInline muted className="absolute inset-0 w-full h-full object-cover"></video>
-                    <canvas ref={canvasRef} className="absolute inset-0 w-full h-full object-cover"></canvas>
-                    
-                    {/* Top Bar */}
-                    <div className="absolute top-0 w-full p-4 safe-area-top z-30 flex flex-col items-center">
-                        {(alertState && monitoringOn) ? (
-                            <div className={`dynamic-island ${alertState} px-6 py-3 flex items-center gap-3 animate-bounce`}>
-                                {alertState === 'danger' ? <Icons.AlertTriangle className="text-white fill-white/20"/> : <Icons.Siren className="text-white"/>}
-                                <span className="text-white font-bold text-sm tracking-tight">{warningMsg}</span>
+        return (
+            <div className={`rounded-xl border ${sc.cls} mb-3 overflow-hidden`}>
+                <button onClick={() => setOpen(!open)}
+                    className="w-full flex items-center gap-3 p-4 text-left">
+                    <span className="text-2xl">{emoji}</span>
+                    <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-bold text-sm">{hazard.title}</span>
+                            <span className={`text-xs font-medium px-2 py-0.5 rounded-full border ${sc.cls}`}>{sc.label}</span>
+                        </div>
+                        <span className="text-xs opacity-70">{hazard.category} 위험</span>
+                    </div>
+                    <Icons.ChevronDown size={16} className={`opacity-60 transition-transform flex-shrink-0 ${open ? 'rotate-180' : ''}`}/>
+                </button>
+                {open && (
+                    <div className="px-4 pb-4 space-y-3 border-t border-current/10">
+                        {/* 위험도 바 */}
+                        <div className="pt-3">
+                            <div className="flex justify-between text-xs mb-1 opacity-60">
+                                <span>위험도</span><span>{sc.label}</span>
                             </div>
-                        ) : (
-                            <div className="ios-glass rounded-full px-4 py-1.5 flex items-center gap-2">
-                                <div className={`w-2 h-2 rounded-full ${monitoringOn ? 'bg-green-500 shadow-[0_0_8px_#22c55e]' : 'bg-gray-500'}`}></div>
-                                <span className="text-xs font-medium text-white/90">HeavyGuard AI</span>
+                            <div className="w-full bg-gray-200 rounded-full h-1.5">
+                                <div className={`h-1.5 rounded-full ${sc.bar} ${sc.barW}`}></div>
                             </div>
-                        )}
-
-                        <div className="absolute right-4 top-4 safe-area-top flex gap-3">
-                            {capabilities.torch && (
-                                <button onClick={toggleFlash} className={`p-2 rounded-full backdrop-blur transition-colors ${flashOn ? 'bg-yellow-400 text-black' : 'bg-black/30 text-white'}`}>
-                                    {flashOn ? <Icons.Flash size={18}/> : <Icons.FlashOff size={18}/>}
-                                </button>
+                        </div>
+                        {/* 현재 상태 */}
+                        <div>
+                            <p className="text-xs font-bold mb-1 opacity-70">현재 상태</p>
+                            <p className="text-sm">{hazard.description}</p>
+                        </div>
+                        {/* 관련 법규 태그 */}
+                        <div className="flex flex-wrap gap-2">
+                            {hazard.law && (
+                                <span className="text-xs bg-blue-700 text-white px-2 py-1 rounded-md font-mono">
+                                    📋 {hazard.law}
+                                </span>
                             )}
-                            <button onClick={() => setIsKeyModalOpen(true)} className="p-2 rounded-full bg-black/30 backdrop-blur text-white">
-                                <Icons.Settings size={18}/>
+                            {hazard.koshaGuide && (
+                                <span className="text-xs bg-green-700 text-white px-2 py-1 rounded-md font-mono">
+                                    🛡 {hazard.koshaGuide}
+                                </span>
+                            )}
+                        </div>
+                        {/* 즉시 조치 */}
+                        <div className="bg-white/50 rounded-lg p-3">
+                            <p className="text-xs font-bold mb-1 text-red-700">⚡ 즉시 조치</p>
+                            <p className="text-sm">{hazard.action}</p>
+                        </div>
+                    </div>
+                )}
+            </div>
+        );
+    };
+
+    const ReportView = ({ reportData, capturedImage, siteInfo, onClose }) => {
+        const [checkedItems, setCheckedItems] = useState({});
+        const toggleCheck = (idx) => setCheckedItems(prev => ({ ...prev, [idx]: !prev[idx] }));
+
+        if (!reportData) return null;
+
+        const riskLevelColor = {
+            '매우위험': 'bg-red-600',
+            '위험': 'bg-orange-500',
+            '주의': 'bg-yellow-500',
+            '양호': 'bg-green-500',
+        }[reportData.riskLevel] || 'bg-yellow-500';
+
+        return (
+            <div id="print-report" className="absolute inset-0 z-50 bg-gray-50 overflow-y-auto animate-slide-up">
+                {/* 고정 헤더 */}
+                <div className="sticky top-0 bg-white/95 backdrop-blur border-b border-gray-200 z-10 safe-area-top">
+                    <div className="flex items-center justify-between px-4 py-3">
+                        <div className="flex items-center gap-2">
+                            <Icons.Shield size={20} className="text-blue-600"/>
+                            <span className="font-bold text-gray-800 text-sm">안전 진단 보고서</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <button onClick={() => window.print()}
+                                className="flex items-center gap-1 text-xs bg-gray-100 text-gray-600 px-3 py-2 rounded-lg">
+                                <Icons.Printer size={14}/> 인쇄
+                            </button>
+                            <button onClick={onClose}
+                                className="p-2 bg-gray-100 rounded-full">
+                                <Icons.X size={18} className="text-gray-600"/>
                             </button>
                         </div>
                     </div>
+                </div>
 
-                    {/* Right Side Controls (Always Show Switch if 2+ cams or desktop fallback) */}
-                    <div className="absolute right-4 top-1/2 -translate-y-1/2 z-20 flex flex-col items-center gap-6">
-                        {/* Always show if multiple cameras OR forced for UI test */}
-                        {(cameras.length > 1) && (
-                            <button onClick={switchCamera} className="p-3 rounded-full bg-black/40 backdrop-blur text-white shadow-lg active:rotate-180 transition-transform">
-                                <Icons.RotateCcw size={20}/>
-                            </button>
-                        )}
-                        {capabilities.zoom && (
-                            <div className="bg-black/40 backdrop-blur rounded-full py-4 w-10 h-48 flex flex-col items-center justify-center relative">
-                                <span className="absolute top-3 text-[10px] font-bold opacity-80">Zoom</span>
-                                <input type="range" min={capabilities.zoom.min} max={capabilities.zoom.max} step="0.1" 
-                                    value={zoom} onChange={handleZoom}
-                                    className="w-32 h-10 -rotate-90 origin-center absolute top-20"
-                                />
-                                <span className="absolute bottom-3 text-[10px] font-mono opacity-80">{zoom.toFixed(1)}x</span>
+                <div className="max-w-2xl mx-auto px-4 py-5 pb-24 space-y-5">
+
+                    {/* ── 헤더 섹션: 현장 정보 + 종합 위험도 ── */}
+                    <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+                        {/* 위험도 컬러 바 */}
+                        <div className={`h-2 ${riskLevelColor}`}></div>
+                        <div className="p-5">
+                            <div className="flex items-start justify-between mb-4">
+                                <div>
+                                    <h1 className="text-lg font-bold text-gray-900">건설 현장 AI 안전 진단서</h1>
+                                    <p className="text-xs text-gray-400 mt-0.5">
+                                        {new Date().toLocaleString('ko-KR', { year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit' })}
+                                    </p>
+                                </div>
+                                <RiskLevelBadge level={reportData.riskLevel}/>
                             </div>
-                        )}
-                    </div>
-
-                    {/* --- Bottom Dock (3-Column Layout) --- */}
-                    <div className="absolute bottom-0 w-full safe-area-bottom pb-6 pt-4 bg-gradient-to-t from-black/90 to-transparent z-30 px-8">
-                        <div className="flex justify-between items-end max-w-sm mx-auto">
-                            
-                            {/* 1. Monitoring Toggle (Left) */}
-                            <div className="flex flex-col items-center gap-2 mb-1 w-16">
-                                <button 
-                                    onClick={() => setMonitoringOn(!monitoringOn)}
-                                    className={`dock-btn ${monitoringOn ? 'active' : ''}`}
-                                >
-                                    {monitoringOn ? <Icons.Eye size={24}/> : <Icons.EyeOff size={24} className="opacity-50"/>}
-                                </button>
-                                <span className="text-[10px] font-medium text-white/80 shadow-black drop-shadow-md">모니터링</span>
-                            </div>
-
-                            {/* 2. AI Diagnosis Shutter (Center) */}
-                            <div className="flex flex-col items-center gap-2 -mb-2">
-                                <button 
-                                    onClick={analyzeSnapshot} 
-                                    disabled={isAnalyzing || !modelLoaded}
-                                    className="shutter-button shadow-[0_0_20px_rgba(0,0,0,0.5)] transform active:scale-95 transition-transform"
-                                >
-                                    <div className="shutter-inner flex items-center justify-center">
-                                        {isAnalyzing ? <Icons.Loader className="text-gray-500 animate-spin" size={32}/> : <Icons.Sparkles className="text-black" size={32}/>}
-                                    </div>
-                                </button>
-                                <span className="text-[11px] font-bold text-white shadow-black drop-shadow-md mb-2">정밀 진단</span>
-                            </div>
-
-                            {/* 3. AI Safety Assistant (Right) */}
-                            <div className="flex flex-col items-center gap-2 mb-1 w-16">
-                                <button 
-                                    onClick={() => setShowChat(true)}
-                                    className="dock-btn text-white hover:bg-white/20 active:bg-[#007AFF]"
-                                >
-                                    <Icons.MessageSquare size={24}/>
-                                </button>
-                                <span className="text-[10px] font-medium text-white/80 shadow-black drop-shadow-md">AI 비서</span>
-                            </div>
-
-                        </div>
-                    </div>
-
-                    {/* --- Chat Modal --- */}
-                    {showChat && (
-                        <div className="absolute inset-0 z-50 bg-[#1C1C1E] flex flex-col animate-[slideUp_0.3s_ease-out]">
-                            {/* Header */}
-                            <div className="bg-[#2C2C2E] border-b border-gray-700 p-4 safe-area-top flex justify-between items-center shadow-md z-10">
-                                <h2 className="text-lg font-bold text-white flex items-center gap-2">
-                                    <span className="bg-[#007AFF] p-1 rounded-md"><Icons.MessageSquare size={16} className="text-white"/></span> AI 안전비서
-                                </h2>
-                                <button onClick={() => setShowChat(false)} className="bg-[#3A3A3C] p-2 rounded-full text-gray-300 hover:text-white">
-                                    <Icons.X size={20}/>
-                                </button>
-                            </div>
-                            
-                            {/* Messages */}
-                            <div className="flex-1 overflow-y-auto p-4 space-y-4 pb-4">
-                                {chatMessages.map((msg, idx) => (
-                                    <div key={idx} className={`flex flex-col ${msg.sender === 'user' ? 'items-end' : 'items-start'}`}>
-                                        <div className={msg.sender === 'user' ? 'chat-bubble-user' : 'chat-bubble-ai'}>
-                                            <div className="text-sm leading-relaxed whitespace-pre-wrap">
-                                                {msg.sender === 'ai' ? marked.parse(msg.text).replace(/<[^>]+>/g, '') : msg.text} 
-                                            </div>
-                                        </div>
+                            {/* 현장 정보 그리드 */}
+                            <div className="grid grid-cols-2 gap-2 text-xs">
+                                {[
+                                    ['현장명', siteInfo?.name || '미입력'],
+                                    ['점검자', siteInfo?.inspector || '미입력'],
+                                    ['날씨', siteInfo?.weather || '미입력'],
+                                    ['발견 위험요소', `${reportData.hazards?.length || 0}건`],
+                                ].map(([k, v]) => (
+                                    <div key={k} className="bg-gray-50 rounded-lg p-2.5">
+                                        <span className="text-gray-400 block">{k}</span>
+                                        <span className="font-semibold text-gray-800">{v}</span>
                                     </div>
                                 ))}
-                                {isChatLoading && (
-                                    <div className="flex justify-start">
-                                        <div className="chat-bubble-ai flex items-center gap-2">
-                                            <Icons.Loader size={16} className="animate-spin text-gray-400"/>
-                                            <span className="text-xs text-gray-400">답변 작성 중...</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* ── 촬영 이미지 ── */}
+                    {capturedImage && (
+                        <div className="bg-black rounded-2xl overflow-hidden shadow-sm">
+                            <img src={capturedImage} alt="진단 현장" className="w-full object-contain max-h-64"/>
+                            <p className="text-xs text-center text-gray-500 py-2">AI 분석 대상 이미지</p>
+                        </div>
+                    )}
+
+                    {/* ── 종합 요약 ── */}
+                    {reportData.summary && (
+                        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-5">
+                            <h2 className="font-bold text-gray-800 mb-3 flex items-center gap-2">
+                                <Icons.Info size={16} className="text-blue-500"/>종합 요약
+                            </h2>
+                            <p className="text-sm text-gray-600 leading-relaxed">{reportData.summary}</p>
+                        </div>
+                    )}
+
+                    {/* ── 위험요소 상세 ── */}
+                    {reportData.hazards && reportData.hazards.length > 0 && (
+                        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-5">
+                            <h2 className="font-bold text-gray-800 mb-4 flex items-center gap-2">
+                                <Icons.AlertTriangle size={16} className="text-orange-500"/>
+                                위험요소 상세 분석
+                                <span className="ml-auto text-xs bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full font-medium">
+                                    {reportData.hazards.length}건 발견
+                                </span>
+                            </h2>
+                            {reportData.hazards.map((h, i) => <HazardCard key={i} hazard={h} idx={i}/>)}
+                        </div>
+                    )}
+
+                    {/* ── 즉시 조치 체크리스트 ── */}
+                    {reportData.immediateActions && reportData.immediateActions.length > 0 && (
+                        <div className="bg-white rounded-2xl shadow-sm border border-red-100 p-5">
+                            <h2 className="font-bold text-red-700 mb-4 flex items-center gap-2">
+                                <Icons.AlertTriangle size={16} className="text-red-500"/>
+                                즉시 조치 필요 사항
+                            </h2>
+                            <div className="space-y-2">
+                                {reportData.immediateActions.map((action, i) => (
+                                    <button key={i} onClick={() => toggleCheck(i)}
+                                        className={`w-full flex items-start gap-3 p-3 rounded-xl border text-left transition-all ${
+                                            checkedItems[i]
+                                                ? 'bg-green-50 border-green-200 opacity-60'
+                                                : 'bg-red-50 border-red-100'
+                                        }`}>
+                                        <div className={`w-5 h-5 rounded-full border-2 flex-shrink-0 mt-0.5 flex items-center justify-center transition-all ${
+                                            checkedItems[i] ? 'bg-green-500 border-green-500' : 'border-red-400'
+                                        }`}>
+                                            {checkedItems[i] && <span className="text-white text-xs">✓</span>}
                                         </div>
-                                    </div>
-                                )}
-                                <div ref={chatEndRef} />
-                            </div>
-
-                            {/* Input Area */}
-                            <div className="p-4 bg-[#2C2C2E] border-t border-gray-700 safe-area-bottom">
-                                <form onSubmit={handleChatSubmit} className="flex gap-2">
-                                    <input 
-                                        type="text" 
-                                        value={chatInput}
-                                        onChange={(e) => setChatInput(e.target.value)}
-                                        placeholder="안전 기준에 대해 물어보세요..." 
-                                        className="flex-1 bg-[#1C1C1E] text-white px-4 py-3 rounded-2xl border border-gray-600 focus:border-[#007AFF] outline-none text-sm placeholder:text-gray-500"
-                                    />
-                                    <button type="submit" disabled={isChatLoading} 
-                                        className="bg-[#007AFF] text-white p-3 rounded-full disabled:opacity-50 disabled:bg-gray-600">
-                                        <Icons.Send size={20}/>
+                                        <span className={`text-sm leading-relaxed ${checkedItems[i] ? 'line-through text-gray-400' : 'text-gray-800'}`}>
+                                            {action}
+                                        </span>
                                     </button>
-                                </form>
+                                ))}
                             </div>
+                            <p className="text-xs text-gray-400 mt-3 text-center">
+                                항목을 탭하면 완료 처리됩니다
+                            </p>
                         </div>
                     )}
 
-                    {/* Report Modal */}
-                    {showReport && (
-                        <div id="report-section" className="absolute inset-0 z-50 bg-white text-black overflow-y-auto animate-[slideUp_0.3s_ease-out]">
-                            <div className="no-print sticky top-0 bg-white/90 backdrop-blur border-b border-gray-200 p-4 flex justify-between items-center safe-area-top z-10">
-                                <h2 className="text-lg font-bold flex items-center gap-2"><Icons.FileText className="text-[#007AFF]"/> 안전 진단 리포트</h2>
-                                <div className="flex gap-2">
-                                    <button onClick={() => window.print()} className="p-2 bg-gray-100 rounded-full"><Icons.Printer size={20}/></button>
-                                    <button onClick={() => setShowReport(false)} className="p-2 bg-gray-100 rounded-full"><Icons.X size={20}/></button>
-                                </div>
-                            </div>
-                            <div className="p-6 max-w-3xl mx-auto space-y-6 pb-20">
-                                <div className="text-center pb-4 border-b">
-                                    <h1 className="text-2xl font-bold">건설 현장 AI 안전 진단서</h1>
-                                    <p className="text-gray-500 text-sm mt-1">{new Date().toLocaleString()}</p>
-                                </div>
-                                {capturedImage && <img src={capturedImage} className="w-full rounded-xl border shadow-sm bg-black object-contain h-64"/>}
-                                <div className="prose prose-sm w-full max-w-none bg-gray-50 p-5 rounded-xl border"
-                                     dangerouslySetInnerHTML={{ __html: marked.parse(analysisResult || '') }}>
-                                </div>
-                                <p className="text-center text-xs text-gray-400 mt-8">AI 분석 결과는 참고용이며, 최종 안전 책임은 관리자에게 있습니다.<br/>Powered by HeavyGuard AI</p>
-                            </div>
+                    {/* ── 권고 사항 ── */}
+                    {reportData.recommendations && reportData.recommendations.length > 0 && (
+                        <div className="bg-white rounded-2xl shadow-sm border border-blue-100 p-5">
+                            <h2 className="font-bold text-blue-700 mb-3 flex items-center gap-2">
+                                <Icons.CheckCircle size={16} className="text-blue-500"/>
+                                개선 권고 사항
+                            </h2>
+                            <ul className="space-y-2">
+                                {reportData.recommendations.map((rec, i) => (
+                                    <li key={i} className="flex items-start gap-2 text-sm text-gray-600">
+                                        <span className="text-blue-400 mt-0.5 flex-shrink-0">→</span>
+                                        {rec}
+                                    </li>
+                                ))}
+                            </ul>
                         </div>
                     )}
 
-                    {/* API Key Modal */}
-                    {isKeyModalOpen && (
-                        <div className="absolute inset-0 z-[60] bg-black/80 backdrop-blur-sm flex items-center justify-center p-6">
-                            <div className="ios-glass-dark w-full max-w-xs p-6 rounded-3xl text-center shadow-2xl border border-white/10">
-                                <div className="bg-[#007AFF] w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-4 shadow-lg shadow-blue-900/50">
-                                    <Icons.Key className="text-white" size={24}/>
-                                </div>
-                                <h3 className="text-xl font-bold text-white mb-2">설정 필요</h3>
-                                <p className="text-sm text-gray-400 mb-4">Google Gemini API 키를 입력해주세요.</p>
-                                
-                                <div className="mb-6 bg-white/5 rounded-xl p-3 border border-white/5">
-                                    <p className="text-[11px] text-gray-300 mb-2">키가 없으신가요?</p>
-                                    <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" 
-                                       className="block w-full py-2 bg-[#007AFF]/20 text-[#007AFF] rounded-lg text-xs font-bold hover:bg-[#007AFF]/30 transition-colors flex items-center justify-center gap-1">
-                                        <span>🔑 키 무료 발급받기</span>
-                                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg>
-                                    </a>
-                                    <p className="text-[10px] text-gray-500 mt-2">구글 로그인 후 'Create API key' 클릭</p>
-                                </div>
+                    {/* ── 법적 고지 ── */}
+                    <div className="text-center text-xs text-gray-400 px-4 pt-2 pb-6">
+                        <p>본 AI 진단 결과는 참고용입니다. 최종 안전 판단 및 조치 책임은 현장 관리자에게 있습니다.</p>
+                        <p className="mt-1">Powered by HeavyGuard AI · {GEMINI_MODEL}</p>
+                    </div>
+                </div>
+            </div>
+        );
+    };
 
-                                <input type="password" id="apiKeyInput" defaultValue={apiKey} placeholder="API Key 입력 (AIza...)" 
-                                    className="w-full bg-white/10 border border-white/10 rounded-xl p-3 text-white mb-4 outline-none focus:border-[#007AFF] text-center placeholder:text-gray-600 transition-colors text-sm"/>
-                                <div className="flex gap-3">
-                                    <button onClick={() => setIsKeyModalOpen(false)} className="flex-1 py-3 text-gray-400 text-sm font-medium">취소</button>
-                                    <button onClick={() => { localStorage.setItem('gemini_api_key', document.getElementById('apiKeyInput').value); setApiKey(document.getElementById('apiKeyInput').value); setIsKeyModalOpen(false); }} 
-                                        className="flex-1 py-3 bg-[#007AFF] text-white rounded-xl font-bold text-sm shadow-lg active:scale-95 transition-transform">저장</button>
-                                </div>
-                            </div>
+    // ─── 메인 앱 ───
+    const App = () => {
+        const [monitoringOn, setMonitoringOn] = useState(true);
+        const [apiKey, setApiKey] = useState('');
+        const [isKeyModalOpen, setIsKeyModalOpen] = useState(false);
+
+        const [modelLoaded, setModelLoaded] = useState(false);
+        const [alertState, setAlertState] = useState(null);
+        const [warningMsg, setWarningMsg] = useState('');
+        const [isAnalyzing, setIsAnalyzing] = useState(false);
+        const [reportData, setReportData] = useState(null);   // 수정 3: 구조화된 JSON
+        const [showReport, setShowReport] = useState(false);
+        const [capturedImage, setCapturedImage] = useState(null);
+
+        // 현장 정보 (보고서 상단 표시용)
+        const [siteInfo, setSiteInfo] = useState({ name: '', inspector: '', weather: '' });
+        const [showSiteForm, setShowSiteForm] = useState(false);
+
+        // 채팅
+        const [showChat, setShowChat] = useState(false);
+        const [chatMessages, setChatMessages] = useState([
+            { sender: 'ai', text: '안녕하세요! KOSHA 안전 가이드 비서입니다.\n\n작업 현장 안전 수칙이나 법적 기준에 대해 무엇이든 물어보세요.\n\n**예시 질문:**\n- 비계 설치 기준이 어떻게 돼요?\n- 밀폐공간 작업 전 해야 할 것들\n- 크레인 작업 반경 규정' }
+        ]);
+        const [chatInput, setChatInput] = useState('');
+        const [isChatLoading, setIsChatLoading] = useState(false);
+        const chatEndRef = useRef(null);
+        const galleryInputRef = useRef(null);
+
+        // 카메라
+        const [videoTrack, setVideoTrack] = useState(null);
+        const [capabilities, setCapabilities] = useState({});
+        const [zoom, setZoom] = useState(1);
+        const [flashOn, setFlashOn] = useState(false);
+        const [cameras, setCameras] = useState([]);
+        const [currentCameraIdx, setCurrentCameraIdx] = useState(0);
+
+        const videoRef = useRef(null);
+        const canvasRef = useRef(null);
+        const modelRef = useRef(null);
+        const requestRef = useRef(null);
+        const streamRef = useRef(null);
+        const trackedObjects = useRef([]);
+        const monitoringOnRef = useRef(true);
+        const loopRef = useRef(null);
+
+        useEffect(() => {
+            const key = localStorage.getItem('gemini_api_key') || '';
+            const si = localStorage.getItem('heavyguard_site_info');
+            if (key) setApiKey(key);
+            else setTimeout(() => setIsKeyModalOpen(true), 1500);
+            if (si) { try { setSiteInfo(JSON.parse(si)); } catch(_) {} }
+
+            cocoSsd.load({ base: 'mobilenet_v2' }).then(model => {
+                modelRef.current = model;
+                setModelLoaded(true);
+                startCamera();
+            }).catch(e => console.error("모델 로딩 실패:", e));
+            return () => cancelAnimationFrame(requestRef.current);
+        }, []);
+
+        useEffect(() => {
+            chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+        }, [chatMessages, showChat]);
+
+        useEffect(() => { monitoringOnRef.current = monitoringOn; }, [monitoringOn]);
+
+        const updateCameras = async () => {
+            try {
+                const devices = await navigator.mediaDevices.enumerateDevices();
+                const vids = devices.filter(d => d.kind === 'videoinput');
+                const backs = vids.filter(d => /back|rear|environment/i.test(d.label));
+                setCameras(backs.length > 0 ? backs : vids);
+            } catch(e) {}
+        };
+
+        const startCamera = async (deviceId = null) => {
+            if (streamRef.current) streamRef.current.getTracks().forEach(t => t.stop());
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: {
+                        deviceId: deviceId ? { exact: deviceId } : undefined,
+                        facingMode: deviceId ? undefined : 'environment',
+                        width: { ideal: 1920 }, height: { ideal: 1080 }
+                    }, audio: false
+                });
+                streamRef.current = stream;
+                if (videoRef.current) {
+                    videoRef.current.srcObject = stream;
+                    const track = stream.getVideoTracks()[0];
+                    setVideoTrack(track);
+                    setTimeout(() => {
+                        setCapabilities(track.getCapabilities ? track.getCapabilities() : {});
+                        setZoom(1); setFlashOn(false);
+                        updateCameras();
+                    }, 500);
+                    videoRef.current.onloadeddata = () => {
+                        cancelAnimationFrame(requestRef.current);
+                        requestRef.current = requestAnimationFrame(() => loopRef.current && loopRef.current());
+                    };
+                }
+            } catch (e) { console.error("Camera error:", e); }
+        };
+
+        const toggleFlash = async () => {
+            if (!videoTrack) return;
+            try { await videoTrack.applyConstraints({ advanced: [{ torch: !flashOn }] }); setFlashOn(!flashOn); } catch(e) {}
+        };
+
+        const switchCamera = () => {
+            if (cameras.length < 2) return;
+            const nextIdx = (currentCameraIdx + 1) % cameras.length;
+            setCurrentCameraIdx(nextIdx);
+            startCamera(cameras[nextIdx].deviceId);
+        };
+
+        const handleZoom = async (e) => {
+            const z = parseFloat(e.target.value);
+            setZoom(z);
+            if (videoTrack) try { await videoTrack.applyConstraints({ advanced: [{ zoom: z }] }); } catch(e) {}
+        };
+
+        const getIoU = (b1, b2) => {
+            const x1 = Math.max(b1[0], b2[0]), y1 = Math.max(b1[1], b2[1]);
+            const x2 = Math.min(b1[0]+b1[2], b2[0]+b2[2]), y2 = Math.min(b1[1]+b1[3], b2[1]+b2[3]);
+            const inter = Math.max(0,x2-x1) * Math.max(0,y2-y1);
+            return inter / (b1[2]*b1[3] + b2[2]*b2[3] - inter);
+        };
+
+        const predictLoop = async () => {
+            if (!modelRef.current || !videoRef.current || !canvasRef.current) return;
+            if (videoRef.current.readyState < 2) { requestRef.current = requestAnimationFrame(() => loopRef.current && loopRef.current()); return; }
+
+            const ctx = canvasRef.current.getContext('2d');
+            if (canvasRef.current.width !== videoRef.current.videoWidth) {
+                canvasRef.current.width = videoRef.current.videoWidth;
+                canvasRef.current.height = videoRef.current.videoHeight;
+            }
+            ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+
+            if (!monitoringOnRef.current) {
+                setAlertState(null); setWarningMsg('');
+                trackedObjects.current = [];
+                requestRef.current = requestAnimationFrame(() => loopRef.current && loopRef.current()); return;
+            }
+
+            const predictions = await modelRef.current.detect(videoRef.current, undefined, 0.15);
+            const MAX_LIFE = 15;
+            const currentTracks = trackedObjects.current;
+            const newTracks = [];
+            currentTracks.forEach(t => t.matched = false);
+
+            predictions.forEach(pred => {
+                let label = pred.class, color = '#34C759';
+                if (label === 'person') { label = '근로자'; color = '#007AFF'; }
+                else if (['truck','car','bus'].includes(label)) { label = '장비'; color = '#FF9500'; }
+                else return;
+
+                let matched = false;
+                for (let i = 0; i < currentTracks.length; i++) {
+                    const t = currentTracks[i];
+                    if (!t.matched && t.label === label && getIoU(t.bbox, pred.bbox) > 0.2) {
+                        t.bbox = pred.bbox; t.life = MAX_LIFE;
+                        t.streak = (t.streak||0) + 1; t.isGhost = false; t.matched = true;
+                        matched = true; break;
+                    }
+                }
+                if (!matched) newTracks.push({ id: Math.random(), label, color, bbox: pred.bbox, life: MAX_LIFE, streak: 1, isGhost: false, matched: true });
+            });
+
+            currentTracks.forEach(t => {
+                if (t.matched) { newTracks.push(t); return; }
+                const minStreak = t.label === '근로자' ? 1 : 3;
+                if (t.streak >= minStreak) {
+                    t.life -= 1;
+                    if (t.life > 0) { t.isGhost = true; newTracks.push(t); }
+                }
+            });
+            trackedObjects.current = newTracks;
+
+            let pCount = 0, eCount = 0;
+            trackedObjects.current.forEach(t => {
+                if (t.label === '장비' && t.streak < 3) return;
+                const [x, y, w, h] = t.bbox;
+                if (t.label === '근로자') pCount++;
+                if (t.label === '장비') eCount++;
+                ctx.save();
+                ctx.globalAlpha = t.isGhost ? 0.5 : 1.0;
+                ctx.setLineDash(t.isGhost ? [4,4] : []);
+                ctx.strokeStyle = t.isGhost ? '#FFFFFF' : t.color;
+                ctx.shadowColor = "rgba(0,0,0,0.8)"; ctx.shadowBlur = 6;
+                ctx.lineWidth = 4;
+                ctx.strokeRect(x, y, w, h);
+                ctx.fillStyle = t.isGhost ? '#666' : t.color;
+                const text = t.label + (t.isGhost ? ' (가림)' : '');
+                const tw = ctx.measureText(text).width;
+                ctx.fillRect(x, y-30, tw+20, 30);
+                ctx.fillStyle = '#fff';
+                ctx.font = '600 16px -apple-system';
+                ctx.fillText(text, x+10, y-9);
+                ctx.restore();
+            });
+
+            if (pCount > 0 && eCount > 0) { setAlertState('danger'); setWarningMsg('⚠️ 충돌 위험: 장비 접근'); }
+            else if (eCount > 0) { setAlertState('warning'); setWarningMsg('주의: 장비 가동 중'); }
+            else { setAlertState(null); setWarningMsg(''); }
+
+            requestRef.current = requestAnimationFrame(() => loopRef.current && loopRef.current());
+        };
+        loopRef.current = predictLoop;
+
+        // ─── 공통 분석 실행 함수 ───
+        const ANALYSIS_PROMPT = `당신은 대한민국 KOSHA(안전보건공단) 인증 건설 안전관리 전문가입니다.
+첨부된 건설 현장 이미지를 면밀히 분석하여, 반드시 아래 JSON 스키마를 정확히 따르는 형태로만 응답하세요.
+JSON 외 다른 텍스트는 절대 포함하지 마세요.
+
+JSON 스키마:
+{
+  "riskLevel": "매우위험|위험|주의|양호 중 하나",
+  "summary": "현장 전반적인 상태 요약 (2~3문장)",
+  "hazards": [
+    {
+      "title": "위험요소 명칭",
+      "category": "추락|협착|감전|화재|전도|충돌|폭발|질식|기타 중 하나",
+      "severity": "high|medium|low 중 하나",
+      "law": "관련 법규",
+      "koshaGuide": "KOSHA Guide 번호 또는 빈 문자열",
+      "description": "현재 불안전 상태 구체적 묘사 (1~2문장)",
+      "action": "즉각적으로 취해야 할 조치 (1~2문장)"
+    }
+  ],
+  "immediateActions": ["우선순위 순 즉시 조치 사항 (최대 5개)"],
+  "recommendations": ["중기적 개선 권고 사항 (최대 4개)"]
+}
+
+점검 항목: 개구부/추락방호, 고소작업 안전대, 중장비 접근제한, 보호구(안전모/안전화/조끼), 비계/동바리, 전기/분전함, 화재/소화기, 통로확보
+이미지에서 실제로 보이는 위험요소만 포함하세요. 보이지 않는 것은 추측하지 마세요.
+위험요소가 없으면 hazards 빈 배열, riskLevel "양호"로 설정하세요.`;
+
+        const runAnalysis = async (base64Img) => {
+            if (!apiKey) { setIsKeyModalOpen(true); setIsAnalyzing(false); return; }
+            setCapturedImage(base64Img);
+            try {
+                const result = await callGeminiAPI(ANALYSIS_PROMPT, base64Img, apiKey, true);
+                if (result.success) {
+                    try {
+                        const cleaned = result.text.replace(/```json\n?|\n?```/g, '').trim();
+                        const parsed = JSON.parse(cleaned);
+                        setReportData(parsed); setShowReport(true);
+                    } catch (err) {
+                        console.error("JSON 파싱 실패:", err);
+                        setReportData({ riskLevel: '주의', summary: result.text, hazards: [], immediateActions: [], recommendations: [] });
+                        setShowReport(true);
+                    }
+                } else {
+                    alert(`오류: ${result.message}`);
+                    if (result.errorType === 'AUTH') setIsKeyModalOpen(true);
+                }
+            } catch (e) { console.error(e); alert("분석 중 오류가 발생했습니다."); }
+            setIsAnalyzing(false);
+        };
+
+        // ── 갤러리 이미지 선택 후 분석 ──
+        const analyzeFromGallery = (e) => {
+            const file = e.target.files?.[0];
+            if (!file) return;
+            e.target.value = ''; // 같은 파일 재선택 허용
+            if (!apiKey) { setIsKeyModalOpen(true); return; }
+            setIsAnalyzing(true);
+            const reader = new FileReader();
+            reader.onload = (ev) => {
+                const img = new Image();
+                img.onload = () => {
+                    // 최대 1920px 리사이즈
+                    const MAX = 1920;
+                    let w = img.width, h = img.height;
+                    if (w > MAX || h > MAX) {
+                        if (w > h) { h = Math.round(h * MAX / w); w = MAX; }
+                        else { w = Math.round(w * MAX / h); h = MAX; }
+                    }
+                    const canvas = document.createElement('canvas');
+                    canvas.width = w; canvas.height = h;
+                    canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+                    runAnalysis(canvas.toDataURL('image/jpeg', 0.85));
+                };
+                img.src = ev.target.result;
+            };
+            reader.readAsDataURL(file);
+        };
+
+        // ─── 수정 3: 정밀 진단 (카메라 촬영) ───
+        const analyzeSnapshot = async () => {
+            if (!apiKey) { setIsKeyModalOpen(true); return; }
+            setIsAnalyzing(true);
+            // 셔터 플래시 효과
+            const flash = document.createElement('div');
+            flash.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:white;z-index:9999;opacity:0.8;transition:opacity 0.2s';
+            document.body.appendChild(flash);
+            setTimeout(() => { flash.style.opacity='0'; setTimeout(()=>flash.remove(),200); }, 50);
+            // 현재 영상 프레임 캡처 후 공통 분석 실행
+            const snapCanvas = document.createElement('canvas');
+            snapCanvas.width = videoRef.current.videoWidth;
+            snapCanvas.height = videoRef.current.videoHeight;
+            snapCanvas.getContext('2d').drawImage(videoRef.current, 0, 0);
+            await runAnalysis(snapCanvas.toDataURL('image/jpeg', 0.85));
+        };
+
+        // ─── 수정 4: 채팅 마크다운 렌더링 수정 ───
+        // 원본: marked.parse(text).replace(/<[^>]+>/g, '') → HTML 파싱 후 태그 제거 = 서식 모두 소실
+        // 개선: dangerouslySetInnerHTML로 제대로 렌더링
+        const handleChatSubmit = async (e) => {
+            e.preventDefault();
+            if (!chatInput.trim() || isChatLoading) return;
+            const userMsg = chatInput.trim();
+            setChatMessages(prev => [...prev, { sender: 'user', text: userMsg }]);
+            setChatInput('');
+            setIsChatLoading(true);
+
+            if (!apiKey) {
+                setChatMessages(prev => [...prev, { sender: 'ai', text: 'API 키 설정이 필요합니다. 우측 상단 ⚙️ 버튼을 눌러주세요.' }]);
+                setIsChatLoading(false);
+                return;
+            }
+
+            const prompt = `당신은 대한민국 KOSHA(안전보건공단) 기준을 준수하는 건설 안전 전문가 AI입니다.
+아래 질문에 대해 산업안전보건법, KOSHA Guide, 건설기술진흥법 등 관련 기준을 근거로 현장 작업자가 이해하기 쉽게 답변하세요.
+마크다운 형식으로 구조화하여 답변하되, 핵심 내용은 굵게 표시하세요. 법 조문이나 가이드 번호가 있으면 반드시 명시하세요.
+
+질문: "${userMsg}"`;
+
+            const result = await callGeminiAPI(prompt, null, apiKey);
+            const aiText = result.success ? result.text : `오류가 발생했습니다: ${result.message}`;
+            setChatMessages(prev => [...prev, { sender: 'ai', text: aiText }]);
+            setIsChatLoading(false);
+        };
+
+        // 현장 정보 저장
+        const saveSiteInfo = (info) => {
+            setSiteInfo(info);
+            localStorage.setItem('heavyguard_site_info', JSON.stringify(info));
+            setShowSiteForm(false);
+        };
+
+        return (
+            <div className="relative h-full w-full bg-black">
+                {/* 뷰파인더 */}
+                <video ref={videoRef} autoPlay playsInline muted className="absolute inset-0 w-full h-full object-cover"/>
+                <canvas ref={canvasRef} className="absolute inset-0 w-full h-full object-cover"/>
+
+                {/* 상단 바 */}
+                <div className="absolute top-0 w-full p-4 safe-area-top z-30 flex flex-col items-center">
+                    {(alertState && monitoringOn) ? (
+                        <div className={`dynamic-island ${alertState} px-6 py-3 flex items-center gap-3 animate-bounce`}>
+                            {alertState === 'danger'
+                                ? <Icons.AlertTriangle className="text-white" style={{fill:'rgba(255,255,255,0.2)'}}/>
+                                : <Icons.Siren className="text-white"/>}
+                            <span className="text-white font-bold text-sm">{warningMsg}</span>
+                        </div>
+                    ) : (
+                        <div className="ios-glass rounded-full px-4 py-1.5 flex items-center gap-2">
+                            <div className={`w-2 h-2 rounded-full ${monitoringOn ? 'bg-green-500' : 'bg-gray-500'}`}
+                                 style={monitoringOn ? {boxShadow:'0 0 8px #22c55e'} : {}}/>
+                            <span className="text-xs font-medium text-white/90">HeavyGuard AI</span>
+                        </div>
+                    )}
+                    <div className="absolute right-4 top-4 safe-area-top flex gap-2">
+                        {capabilities.torch && (
+                            <button onClick={toggleFlash}
+                                className={`p-2 rounded-full backdrop-blur transition-colors ${flashOn ? 'bg-yellow-400 text-black' : 'bg-black/30 text-white'}`}>
+                                {flashOn ? <Icons.Flash size={18}/> : <Icons.FlashOff size={18}/>}
+                            </button>
+                        )}
+                        <button onClick={() => setShowSiteForm(true)} className="p-2 rounded-full bg-black/30 backdrop-blur text-white">
+                            <Icons.FileText size={18}/>
+                        </button>
+                        <button onClick={() => setIsKeyModalOpen(true)} className="p-2 rounded-full bg-black/30 backdrop-blur text-white">
+                            <Icons.Settings size={18}/>
+                        </button>
+                    </div>
+                </div>
+
+                {/* 우측 컨트롤 */}
+                <div className="absolute right-4 top-1/2 -translate-y-1/2 z-20 flex flex-col items-center gap-6">
+                    {cameras.length > 1 && (
+                        <button onClick={switchCamera}
+                            className="p-3 rounded-full bg-black/40 backdrop-blur text-white shadow-lg active:rotate-180 transition-transform">
+                            <Icons.RotateCcw size={20}/>
+                        </button>
+                    )}
+                    {capabilities.zoom && (
+                        <div className="bg-black/40 backdrop-blur rounded-full py-4 w-10 h-48 flex flex-col items-center justify-center relative">
+                            <span className="absolute top-3 text-[10px] font-bold opacity-80">Zoom</span>
+                            <input type="range" min={capabilities.zoom.min} max={capabilities.zoom.max} step="0.1"
+                                value={zoom} onChange={handleZoom}
+                                className="w-32 h-10 -rotate-90 origin-center absolute top-20"/>
+                            <span className="absolute bottom-3 text-[10px] font-mono opacity-80">{zoom.toFixed(1)}x</span>
                         </div>
                     )}
                 </div>
-            );
-        };
 
-        const root = ReactDOM.createRoot(document.getElementById('root'));
-        root.render(<App />);
-    </script>
+                {/* 하단 독 */}
+                <div className="absolute bottom-0 w-full safe-area-bottom pb-6 pt-4 bg-gradient-to-t from-black/90 to-transparent z-30 px-8">
+                    <div className="flex justify-between items-end max-w-sm mx-auto">
+                        {/* 숨겨진 갤러리 input */}
+                        <input ref={galleryInputRef} type="file" accept="image/*"
+                            style={{display:'none'}} onChange={analyzeFromGallery}/>
+
+                        {/* 모니터링 */}
+                        <div className="flex flex-col items-center gap-2 mb-1" style={{width:52}}>
+                            <button onClick={() => { const next = !monitoringOn; monitoringOnRef.current = next; setMonitoringOn(next); }}
+                                className={`dock-btn ${monitoringOn ? 'active' : ''}`} style={{width:46,height:46}}>
+                                {monitoringOn ? <Icons.Eye size={20}/> : <Icons.EyeOff size={20} className="opacity-50"/>}
+                            </button>
+                            <span className="text-[10px] font-medium text-white/80">모니터링</span>
+                        </div>
+
+                        {/* 갤러리 분석 */}
+                        <div className="flex flex-col items-center gap-2 mb-1" style={{width:52}}>
+                            <button onClick={() => galleryInputRef.current?.click()}
+                                disabled={isAnalyzing}
+                                className="dock-btn text-white disabled:opacity-40" style={{width:46,height:46}}>
+                                <Icons.Image size={20}/>
+                            </button>
+                            <span className="text-[10px] font-medium text-white/80">갤러리</span>
+                        </div>
+
+                        {/* 정밀 진단 셔터 */}
+                        <div className="flex flex-col items-center gap-2 -mb-2">
+                            <button onClick={analyzeSnapshot} disabled={isAnalyzing || !modelLoaded}
+                                className="shutter-button shadow-[0_0_20px_rgba(0,0,0,0.5)] transform active:scale-95 transition-transform">
+                                <div className="shutter-inner flex items-center justify-center">
+                                    {isAnalyzing
+                                        ? <Icons.Loader className="text-gray-500" size={28}/>
+                                        : <Icons.Sparkles className="text-black" size={28}/>}
+                                </div>
+                            </button>
+                            <span className="text-[11px] font-bold text-white mb-2">정밀 진단</span>
+                        </div>
+
+                        {/* AI 비서 */}
+                        <div className="flex flex-col items-center gap-2 mb-1" style={{width:52}}>
+                            <button onClick={() => setShowChat(true)}
+                                className="dock-btn text-white" style={{width:46,height:46}}>
+                                <Icons.MessageSquare size={20}/>
+                            </button>
+                            <span className="text-[10px] font-medium text-white/80">AI 비서</span>
+                        </div>
+                    </div>
+                </div>
+
+                {/* ── 채팅 모달 (수정 4: 마크다운 제대로 렌더링) ── */}
+                {showChat && (
+                    <div className="absolute inset-0 z-50 bg-[#1C1C1E] flex flex-col animate-slide-up">
+                        <div className="bg-[#2C2C2E] border-b border-gray-700 p-4 safe-area-top flex justify-between items-center">
+                            <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                                <span className="bg-[#007AFF] p-1 rounded-md"><Icons.MessageSquare size={16} className="text-white"/></span>
+                                AI 안전비서
+                            </h2>
+                            <button onClick={() => setShowChat(false)} className="bg-[#3A3A3C] p-2 rounded-full text-gray-300">
+                                <Icons.X size={20}/>
+                            </button>
+                        </div>
+                        <div className="flex-1 overflow-y-auto p-4 space-y-4 hide-scrollbar">
+                            {chatMessages.map((msg, idx) => (
+                                <div key={idx} className={`flex flex-col ${msg.sender === 'user' ? 'items-end' : 'items-start'}`}>
+                                    {msg.sender === 'user' ? (
+                                        <div className="chat-bubble-user">
+                                            <p className="text-sm leading-relaxed whitespace-pre-wrap">{msg.text}</p>
+                                        </div>
+                                    ) : (
+                                        <div className="chat-bubble-ai">
+                                            {/* 수정 4: HTML 태그 제거 없이 마크다운 제대로 렌더링 */}
+                                            <div className="text-sm leading-relaxed md-content"
+                                                 dangerouslySetInnerHTML={{ __html: marked.parse(msg.text) }}/>
+                                        </div>
+                                    )}
+                                </div>
+                            ))}
+                            {isChatLoading && (
+                                <div className="flex justify-start">
+                                    <div className="chat-bubble-ai flex items-center gap-2">
+                                        <Icons.Loader size={16} className="text-gray-400"/>
+                                        <span className="text-xs text-gray-400">답변 작성 중...</span>
+                                    </div>
+                                </div>
+                            )}
+                            <div ref={chatEndRef}/>
+                        </div>
+                        <div className="p-4 bg-[#2C2C2E] border-t border-gray-700 safe-area-bottom">
+                            <form onSubmit={handleChatSubmit} className="flex gap-2">
+                                <input type="text" value={chatInput} onChange={e=>setChatInput(e.target.value)}
+                                    placeholder="안전 기준에 대해 물어보세요..."
+                                    className="flex-1 bg-[#1C1C1E] text-white px-4 py-3 rounded-2xl border border-gray-600 focus:border-[#007AFF] outline-none text-sm placeholder:text-gray-500"/>
+                                <button type="submit" disabled={isChatLoading}
+                                    className="bg-[#007AFF] text-white p-3 rounded-full disabled:opacity-50 disabled:bg-gray-600">
+                                    <Icons.Send size={20}/>
+                                </button>
+                            </form>
+                        </div>
+                    </div>
+                )}
+
+                {/* ── 보고서 모달 (수정 3: 완전 재설계) ── */}
+                {showReport && (
+                    <ReportView
+                        reportData={reportData}
+                        capturedImage={capturedImage}
+                        siteInfo={siteInfo}
+                        onClose={() => setShowReport(false)}
+                    />
+                )}
+
+                {/* ── 현장 정보 입력 폼 ── */}
+                {showSiteForm && (
+                    <div className="absolute inset-0 z-[55] bg-black/80 backdrop-blur-sm flex items-end justify-center">
+                        <div className="ios-glass-dark w-full max-w-sm p-6 rounded-t-3xl">
+                            <h3 className="text-lg font-bold text-white mb-1">현장 정보</h3>
+                            <p className="text-xs text-gray-400 mb-5">보고서 헤더에 표시됩니다</p>
+                            {[
+                                { key: 'name',      label: '현장명',   placeholder: '예: ○○아파트 신축 현장' },
+                                { key: 'inspector', label: '점검자',   placeholder: '예: 홍길동 (안전관리자)' },
+                                { key: 'weather',   label: '날씨',     placeholder: '예: 맑음 25°C' },
+                            ].map(({ key, label, placeholder }) => (
+                                <div key={key} className="mb-3">
+                                    <label className="text-xs text-gray-400 block mb-1">{label}</label>
+                                    <input type="text" value={siteInfo[key]}
+                                        onChange={e => setSiteInfo(prev => ({ ...prev, [key]: e.target.value }))}
+                                        placeholder={placeholder}
+                                        className="w-full bg-white/10 border border-white/10 rounded-xl p-3 text-white text-sm outline-none focus:border-[#007AFF] placeholder:text-gray-600"/>
+                                </div>
+                            ))}
+                            <div className="flex gap-3 mt-4">
+                                <button onClick={() => setShowSiteForm(false)} className="flex-1 py-3 text-gray-400 text-sm font-medium">취소</button>
+                                <button onClick={() => saveSiteInfo(siteInfo)} className="flex-1 py-3 bg-[#007AFF] text-white rounded-xl font-bold text-sm">저장</button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* ── API 키 모달 ── */}
+                {isKeyModalOpen && (
+                    <div className="absolute inset-0 z-[60] bg-black/80 backdrop-blur-sm flex items-center justify-center p-6">
+                        <div className="ios-glass-dark w-full max-w-xs p-6 rounded-3xl text-center shadow-2xl">
+                            <div className="bg-[#007AFF] w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-4"
+                                 style={{boxShadow:'0 0 20px rgba(0,122,255,0.4)'}}>
+                                <Icons.Key className="text-white" size={24}/>
+                            </div>
+                            <h3 className="text-xl font-bold text-white mb-2">API 키 설정</h3>
+                            <p className="text-sm text-gray-400 mb-4">Google Gemini API 키를 입력하세요.</p>
+                            <div className="mb-5 bg-white/5 rounded-xl p-3 border border-white/5">
+                                <p className="text-[11px] text-gray-300 mb-2">키가 없으신가요?</p>
+                                <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer"
+                                   className="block w-full py-2 bg-[#007AFF]/20 text-[#007AFF] rounded-lg text-xs font-bold flex items-center justify-center gap-1">
+                                    🔑 무료 발급받기
+                                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
+                                </a>
+                                <p className="text-[10px] text-gray-500 mt-1">구글 로그인 → Create API key 클릭</p>
+                            </div>
+                            <input type="password" id="apiKeyInput" defaultValue={apiKey}
+                                placeholder="AIza..."
+                                className="w-full bg-white/10 border border-white/10 rounded-xl p-3 text-white mb-4 outline-none focus:border-[#007AFF] text-center placeholder:text-gray-600 text-sm"/>
+                            <div className="flex gap-3">
+                                <button onClick={() => setIsKeyModalOpen(false)} className="flex-1 py-3 text-gray-400 text-sm">취소</button>
+                                <button onClick={() => {
+                                    const key = document.getElementById('apiKeyInput').value;
+                                    localStorage.setItem('gemini_api_key', key);
+                                    setApiKey(key); setIsKeyModalOpen(false);
+                                }} className="flex-1 py-3 bg-[#007AFF] text-white rounded-xl font-bold text-sm">저장</button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+            </div>
+        );
+    };
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
 </body>
 </html>
