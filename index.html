@@ -1434,6 +1434,7 @@ group은 1부터 시작하는 정수이며, 같은 작업이면 같은 번호를
             return { x: bx + (bw - w) / 2, y: by + (bh - h) / 2, w, h };
         };
 
+        // ── 일지 PPTX 다운로드 (사내 양식 좌표 재현) ──
         const downloadLogbookPPTX = async () => {
             if (!logResult) { alert('먼저 AI 일지를 생성해주세요.'); return; }
             setLoadingMsg('PPT 생성 준비 중...');
@@ -1449,61 +1450,78 @@ group은 1부터 시작하는 정수이며, 같은 작업이면 같은 번호를
             for (const src of allSrc) dims.set(src, await measureImg(src));
 
             const pptx = new PptxCtor();
-            // 실측: 7.50 x 10.83 in
             pptx.defineLayout({ name: 'SITE', width: 7.5, height: 10.83 });
             pptx.layout = 'SITE';
 
             // 서식: 글꼴 통일(맑은 고딕), 크기 = 섹션 16 / 개요 14 / 내용 12
-            const FONT    = '맑은 고딕';
-            const F_TITLE = FONT, F_SEC = FONT, F_BODY = FONT;
+            const FONT = '맑은 고딕';
             const SZ_SEC = 16, SZ_OVW = 14, SZ_BODY = 12;
             const SW = 7.5, SH = 10.83;
-            const BANNER_H = 7.5 * 102 / 1107;            // 배너 원본 비율 유지 = 0.691
-            const TBL_X = 0.40, TBL_W = 6.93, C1 = 0.59;   // 표 위치 / 구분열 폭
+            const BANNER_H = 7.5 * 102 / 1107;             // 배너 원본 비율 = 0.691
+            const TBL_X = 0.40, TBL_W = 6.93, C1 = 0.59;
             const C2_X = TBL_X + C1, C2_W = TBL_W - C1;
             const HDR_H = 0.29;
-            // 사진 박스 — 사진 1장이면 크게, 2장이면 나란히
-            const BOX1_W = 4.60, BOX1_H = 2.60;            // 단독
-            const BOX2_W = 2.95, BOX2_H = 2.10;            // 2장 나란히
-            const BOX2_X = [1.13, 4.23];
             const LINE = '7F9DB9';
+            const BOTTOM_LIMIT = 10.42;
+            // 사진 박스 — 1장이면 크게, 2장이면 나란히
+            const BOX1_W = 4.60, BOX1_H = 2.60;
+            const BOX2_W = 2.95, BOX2_H = 2.10;
+            const BOX2_X = [1.13, 4.23];
+            // 12pt 기준 줄높이
+            const LH = 0.20, LH_SUB = 0.19;
 
-            // 슬라이드 기본 틀 (배너 + 제목)
-            const newSlide = () => {
+            const newSlide = (contTitle) => {
                 const s = pptx.addSlide();
-                s.addImage({ data: BANNER_B64, x: 0, y: 0, w: SW, h: BANNER_H });   // 원본 비율 1107x102
+                s.addImage({ data: BANNER_B64, x: 0, y: 0, w: SW, h: BANNER_H });
+                // 제목: 배너 안에서 살짝 위쪽에 배치
                 s.addText('현장 안전관리 일일 지원결과 공유', {
-                    x: 0.16, y: 0, w: 5.6, h: BANNER_H,
-                    fontSize: 20, bold: true, color: '1A1A1A', fontFace: F_TITLE, valign: 'middle',
+                    x: 0.16, y: 0.02, w: 5.6, h: BANNER_H - 0.14,
+                    fontSize: 20, bold: true, color: '1A1A1A', fontFace: FONT, valign: 'middle',
+                });
+                if (contTitle) s.addText('Ⅲ. 지원 결과 (계속)', {
+                    x: 0.16, y: 0.80, w: 7.13, h: 0.32,
+                    fontSize: SZ_SEC, bold: true, color: '000000', fontFace: FONT,
                 });
                 return s;
             };
 
-            // 텍스트 줄수 추정 (폭 기준)
             const nLines = (t, per) => Math.max(1, Math.ceil((t || '').length / per));
 
-            // 한 시간대(오전/오후) 섹션 렌더 → 사용한 높이 반환
-            const renderSlot = (s, startY, slot, items) => {
-                // 텍스트 높이 계산
-                // 같은 작업(group)끼리 묶기 — 설명 1회 + 사진 최대 2장
-                const groups = [];
+            // ── 같은 작업(group)끼리 묶기: 설명 1회 + 사진 최대 2장 ──
+            const buildGroups = (items) => {
+                const gs = [];
                 items.forEach((it, i) => {
                     const key = (it.group !== undefined && it.group !== null) ? `g${it.group}` : `s${i}`;
-                    let g = groups.find(x => x.key === key && x.items.length < 2);
-                    if (!g) { g = { key, items: [] }; groups.push(g); }
+                    let g = gs.find(x => x.key === key && x.items.length < 2);
+                    if (!g) { g = { key, items: [] }; gs.push(g); }
                     g.items.push(it);
                 });
+                return gs;
+            };
+            const groupH = (g) => {
+                const head = g.items[0];
+                let h = nLines(head.line, 40) * LH;
+                if (head.sub) h += nLines(head.sub, 40) * LH_SUB + 0.02;
+                const np = g.items.filter(x => x.entry?.image).length;
+                if (np >= 2) h += BOX2_H + 0.12;
+                else if (np === 1) h += BOX1_H + 0.12;
+                return h + 0.10;
+            };
+            // startY에서 들어가는 묶음 개수 (남은 공간을 최대한 채움)
+            const fitGroups = (startY, gs) => {
+                let used = HDR_H + 0.08, n = 0;
+                for (const g of gs) {
+                    const h = groupH(g);
+                    if (startY + used + h + 0.12 > BOTTOM_LIMIT) break;
+                    used += h; n++;
+                }
+                return Math.max(1, n);
+            };
 
+            // 한 시간대 섹션 렌더 → 사용 높이 반환
+            const renderSlot = (s, startY, slot, gs) => {
                 let bodyH = 0.08;
-                groups.forEach(g => {
-                    const head = g.items[0];
-                    bodyH += nLines(head.line, 37) * 0.24;
-                    if (head.sub) bodyH += nLines(head.sub, 36) * 0.23 + 0.02;
-                    const np = g.items.filter(x => x.entry?.image).length;
-                    if (np >= 2) bodyH += BOX2_H + 0.12;
-                    else if (np === 1) bodyH += BOX1_H + 0.12;
-                    bodyH += 0.10;
-                });
+                gs.forEach(g => { bodyH += groupH(g); });
                 bodyH = Math.max(0.6, bodyH);
 
                 // 헤더행
@@ -1512,40 +1530,36 @@ group은 1부터 시작하는 정수이며, 같은 작업이면 같은 번호를
                 s.addShape(pptx.ShapeType.rect, { x: C2_X, y: startY, w: C2_W, h: HDR_H,
                     fill: { color: 'DCE6F2' }, line: { color: LINE, width: 1 } });
                 s.addText('구분', { x: TBL_X, y: startY, w: C1, h: HDR_H,
-                    fontSize: SZ_BODY, bold: true, align: 'center', valign: 'middle', color: '1A1A1A', fontFace: F_BODY });
+                    fontSize: SZ_BODY, bold: true, align: 'center', valign: 'middle', color: '1A1A1A', fontFace: FONT });
                 s.addText('지원 결과', { x: C2_X, y: startY, w: C2_W, h: HDR_H,
-                    fontSize: SZ_BODY, bold: true, align: 'center', valign: 'middle', color: '1A1A1A', fontFace: F_BODY });
+                    fontSize: SZ_BODY, bold: true, align: 'center', valign: 'middle', color: '1A1A1A', fontFace: FONT });
 
                 const bodyY = startY + HDR_H;
-                // 본문 셀 테두리 (내용보다 먼저 그려 z-order 아래로)
                 s.addShape(pptx.ShapeType.rect, { x: TBL_X, y: bodyY, w: C1, h: bodyH,
                     fill: { color: 'FFFFFF' }, line: { color: LINE, width: 1 } });
                 s.addShape(pptx.ShapeType.rect, { x: C2_X, y: bodyY, w: C2_W, h: bodyH,
                     line: { color: LINE, width: 1 } });
                 s.addText(slot, { x: TBL_X, y: bodyY, w: C1, h: bodyH,
-                    fontSize: SZ_BODY, bold: true, align: 'center', valign: 'middle', color: '1A1A1A', fontFace: F_BODY });
+                    fontSize: SZ_BODY, bold: true, align: 'center', valign: 'middle', color: '1A1A1A', fontFace: FONT });
 
-                // 본문 텍스트
-                let ty = bodyY + 0.08;
-                // 설명 → 사진(1~2장) → 설명 → 사진 순서
-                groups.forEach(g => {
+                let ty = bodyY + 0.06;
+                gs.forEach(g => {
                     const head = g.items[0];
-                    const lh = nLines(head.line, 37) * 0.24;
+                    const lh = nLines(head.line, 40) * LH;
                     s.addText(`• ${head.line}`, { x: C2_X + 0.10, y: ty, w: C2_W - 0.20, h: lh,
-                        fontSize: SZ_BODY, color: '000000', fontFace: F_BODY, valign: 'top' });
+                        fontSize: SZ_BODY, color: '000000', fontFace: FONT, valign: 'top' });
                     ty += lh;
                     if (head.sub) {
-                        const sh = nLines(head.sub, 36) * 0.23;
-                        s.addText(`→ ${head.sub}`, { x: C2_X + 0.30, y: ty, w: C2_W - 0.40, h: sh,
-                            fontSize: SZ_BODY, color: '000000', fontFace: F_BODY, valign: 'top' });
+                        const sh = nLines(head.sub, 40) * LH_SUB;
+                        s.addText(`→ ${head.sub}`, { x: C2_X + 0.28, y: ty, w: C2_W - 0.38, h: sh,
+                            fontSize: SZ_BODY, color: '000000', fontFace: FONT, valign: 'top' });
                         ty += sh + 0.02;
                     }
                     const pics = g.items.filter(x => x.entry?.image);
                     if (pics.length >= 2) {
-                        // 2장 나란히
                         pics.slice(0, 2).forEach((p, i) => {
                             const dim = dims.get(p.entry.image) || { w: 4, h: 3 };
-                            const f = fitBox(BOX2_X[i], ty + 0.03, BOX2_W, BOX2_H, dim.w, dim.h);
+                            const f = fitBox(BOX2_X[i], ty + 0.02, BOX2_W, BOX2_H, dim.w, dim.h);
                             try { s.addImage({ data: p.entry.image, x: f.x, y: f.y, w: f.w, h: f.h }); }
                             catch (e) { console.warn('이미지 삽입 실패', e); }
                         });
@@ -1553,7 +1567,7 @@ group은 1부터 시작하는 정수이며, 같은 작업이면 같은 번호를
                     } else if (pics.length === 1) {
                         const dim = dims.get(pics[0].entry.image) || { w: 4, h: 3 };
                         const bx = C2_X + (C2_W - BOX1_W) / 2;
-                        const f = fitBox(bx, ty + 0.03, BOX1_W, BOX1_H, dim.w, dim.h);
+                        const f = fitBox(bx, ty + 0.02, BOX1_W, BOX1_H, dim.w, dim.h);
                         try { s.addImage({ data: pics[0].entry.image, x: f.x, y: f.y, w: f.w, h: f.h }); }
                         catch (e) { console.warn('이미지 삽입 실패', e); }
                         ty += BOX1_H + 0.12;
@@ -1564,113 +1578,85 @@ group은 1부터 시작하는 정수이며, 같은 작업이면 같은 번호를
                 return HDR_H + bodyH;
             };
 
-            // 시간대별 항목 (사진 6장 초과 시 슬라이드 분할)
             const groupOf = slot => logResult.items.filter(it => (it.slot || '오전') === slot);
-            const chunk = (arr, n) => {
-                const out = [];
-                for (let i = 0; i < arr.length; i += n) out.push(arr.slice(i, i + n));
-                return out.length ? out : [[]];
-            };
-            // 첫 묶음만 크기를 달리 (첫 슬라이드는 개요·업무가 공간을 차지)
-            const chunkFirst = (arr, firstN, restN) => {
-                if (!arr.length) return [[]];
-                const out = [arr.slice(0, firstN)];
-                for (let i = firstN; i < arr.length; i += restN) out.push(arr.slice(i, i + restN));
-                return out;
-            };
 
             let slide = newSlide();
             let y, lastEndY = 0;
 
             // ── Ⅰ. 지원 개요 ──
-            slide.addText('Ⅰ. 지원 개요', { x: 0.16, y: 0.76, w: 7.13, h: 0.32,
-                fontSize: SZ_SEC, bold: true, color: '000000', fontFace: F_SEC });
+            slide.addText('Ⅰ. 지원 개요', { x: 0.16, y: 0.80, w: 7.13, h: 0.32,
+                fontSize: SZ_SEC, bold: true, color: '000000', fontFace: FONT });
             [['현장명', logMeta.site], ['지원일자', logMeta.date], ['지원인원', logMeta.supporter]]
                 .forEach(([k, v], i) => {
                     slide.addText(`○ ${k} : ${v || ''}`, {
-                        x: 0.45, y: 1.13 + i * 0.30, w: 6.9, h: 0.29,
-                        fontSize: SZ_OVW, color: '000000', fontFace: F_BODY });
+                        x: 0.45, y: 1.14 + i * 0.28, w: 6.9, h: 0.27,
+                        fontSize: SZ_OVW, color: '000000', fontFace: FONT });
                 });
 
             // ── Ⅱ. 지원 업무 ──
             slide.addText([
-                { text: 'Ⅱ. 지원 업무 ', options: { fontSize: SZ_SEC, bold: true, color: '000000', fontFace: F_SEC } },
-                { text: '(해당 현장으로부터 지원 요청 받은 사항)', options: { fontSize: SZ_BODY, color: '333333', fontFace: F_BODY } },
-            ], { x: 0.16, y: 2.16, w: 7.13, h: 0.32 });
+                { text: 'Ⅱ. 지원 업무 ', options: { fontSize: SZ_SEC, bold: true, color: '000000', fontFace: FONT } },
+                { text: '(해당 현장으로부터 지원 요청 받은 사항)', options: { fontSize: SZ_BODY, color: '333333', fontFace: FONT } },
+            ], { x: 0.16, y: 2.08, w: 7.13, h: 0.32 });
 
             const reqs = (logMeta.requests || '').split('\n').map(s => s.trim()).filter(Boolean);
-            const reqH = Math.max(1.10, reqs.length * 0.245 + 0.16);
-            slide.addShape(pptx.ShapeType.rect, { x: TBL_X, y: 2.58, w: TBL_W, h: reqH,
+            const reqH = Math.max(0.95, reqs.length * 0.235 + 0.14);
+            slide.addShape(pptx.ShapeType.rect, { x: TBL_X, y: 2.46, w: TBL_W, h: reqH,
                 fill: { color: 'FFFFFF' }, line: { color: LINE, width: 1 } });
             reqs.forEach((r, i) => {
-                slide.addText(`${i + 1}) ${r}`, { x: TBL_X + 0.14, y: 2.64 + i * 0.245, w: TBL_W - 0.28, h: 0.24,
-                    fontSize: SZ_BODY, color: '000000', fontFace: F_BODY });
+                slide.addText(`${i + 1}) ${r}`, { x: TBL_X + 0.14, y: 2.53 + i * 0.235, w: TBL_W - 0.28, h: 0.23,
+                    fontSize: SZ_BODY, color: '000000', fontFace: FONT });
             });
 
-            // ── Ⅲ. 지원 결과 (오전) ──
-            const secY = 2.58 + reqH + 0.18;
+            // ── Ⅲ. 지원 결과 ──
+            const secY = 2.46 + reqH + 0.14;
             slide.addText('Ⅲ. 지원 결과', { x: 0.16, y: secY, w: 7.13, h: 0.32,
-                fontSize: SZ_SEC, bold: true, color: '000000', fontFace: F_SEC });
-            y = secY + 0.42;
+                fontSize: SZ_SEC, bold: true, color: '000000', fontFace: FONT });
+            y = secY + 0.36;
 
-            // 시작 y에서 몇 개 항목(텍스트+사진)이 들어가는지 역산
-            const BOTTOM_LIMIT = 10.45;
-            const ITEM_H = 0.52 + BOX2_H + 0.22;           // 설명 + 사진 1행 = 묶음 1개 높이
-            const fitCount = (startY, maxN) => {
-                for (let n = maxN; n >= 1; n--) {
-                    const need = HDR_H + 0.10 + n * ITEM_H + 0.15;
-                    if (startY + need <= BOTTOM_LIMIT) return n;
+            // 묶음 단위로 페이지를 채움 (1페이지부터 최대한)
+            const renderSlotPaged = (slotName, startYFirst, isFirstSlideExisting) => {
+                const gs = buildGroups(groupOf(slotName));
+                if (!gs.length) return;
+                let idx = 0, first = true;
+                while (idx < gs.length) {
+                    const startY = first && isFirstSlideExisting ? startYFirst : 1.22;
+                    if (!first || !isFirstSlideExisting) {
+                        slide = newSlide(true);
+                    }
+                    const n = fitGroups(startY, gs.slice(idx));
+                    const chunk = gs.slice(idx, idx + n);
+                    lastEndY = startY + renderSlot(slide, startY, slotName, chunk);
+                    idx += n;
+                    first = false;
                 }
-                return 1;
             };
-            const amAll = groupOf('오전');
-            const firstN = fitCount(y, 6) * 2;      // 2건이 1묶음이 될 수 있음                 // 1장: 개요·업무 차지분 반영
-            const restN  = fitCount(1.22, 6) * 2;              // 2장 이후
-            const amChunks = chunkFirst(amAll, firstN, restN);
-            amChunks.forEach((grp, gi) => {
-                if (gi > 0) {
-                    slide = newSlide();
-                    slide.addText('Ⅲ. 지원 결과 (계속)', { x: 0.16, y: 0.74, w: 7.13, h: 0.32,
-                        fontSize: SZ_SEC, bold: true, color: '000000', fontFace: F_SEC });
-                    y = 1.22;
-                }
-                if (grp.length) lastEndY = y + renderSlot(slide, y, '오전', grp);
-            });
 
-            // ── Ⅲ. 지원 결과 (오후) — 새 슬라이드 ──
-            const pmGroups = groupOf('오후');
-            if (pmGroups.length) {
-                chunk(pmGroups, restN).forEach((grp, gi) => {
-                    slide = newSlide();
-                    slide.addText(gi === 0 ? 'Ⅲ. 지원 결과' : 'Ⅲ. 지원 결과 (계속)', {
-                        x: 0.16, y: 0.74, w: 7.13, h: 0.32,
-                        fontSize: SZ_SEC, bold: true, color: '000000', fontFace: F_SEC });
-                    lastEndY = 1.22 + renderSlot(slide, 1.22, '오후', grp);
-                });
+            renderSlotPaged('오전', y, true);
+            renderSlotPaged('오후', 1.22, false);
+
+            // ── 마지막 슬라이드 하단: 특이사항 + 절차 ──
+            if (lastEndY > 8.90) { slide = newSlide(); lastEndY = 1.10; }
+            if (logResult.note) {
+                slide.addText(`※ 특이사항 : ${logResult.note}`, {
+                    x: 0.16, y: Math.min(9.02, lastEndY + 0.18), w: 7.13, h: 0.40,
+                    fontSize: 11, italic: true, color: '555555', fontFace: FONT });
             }
-
-            // ── 마지막 슬라이드 하단: 지원업무 수행 절차 (겹치면 새 슬라이드) ──
-            if (lastEndY > 9.15) { slide = newSlide(); }
-            slide.addText('※ 지원업무 수행 및 결과공유 절차', { x: 0.16, y: 9.32, w: 3.2, h: 0.28,
-                fontSize: 11, bold: true, color: '333333', fontFace: F_BODY });
+            slide.addText('※ 지원업무 수행 및 결과공유 절차', { x: 0.16, y: 9.52, w: 3.4, h: 0.26,
+                fontSize: 11, bold: true, color: '333333', fontFace: FONT });
             const flow = [
                 ['PM 의견을 받아, 지원인원에게\n일일 안전관리 업무내용 전달', '[현장 공무팀 → 지원인원]', 0.40],
                 ['일일 안전관리 지원 수행하고,\n지원결과 작성하여 공무팀 제출', '[지원인원 → 현장 공무팀]', 2.89],
                 ['개별 지원결과를 취합하여\nPM 보고 및 피드백 공유', '[현장 공무팀 → PM]', 5.20],
             ];
             flow.forEach(([body, cap, fx]) => {
-                slide.addShape(pptx.ShapeType.rect, { x: fx, y: 9.64, w: 2.13, h: 0.49,
+                slide.addShape(pptx.ShapeType.rect, { x: fx, y: 9.82, w: 2.13, h: 0.48,
                     fill: { color: 'F2F6FA' }, line: { color: LINE, width: 0.75 } });
-                slide.addText(body, { x: fx, y: 9.64, w: 2.13, h: 0.49,
-                    fontSize: 8.5, align: 'center', valign: 'middle', color: '000000', fontFace: F_BODY });
-                slide.addText(cap, { x: fx, y: 10.14, w: 2.13, h: 0.20,
-                    fontSize: 8, align: 'center', color: '555555', fontFace: F_BODY });
+                slide.addText(body, { x: fx, y: 9.82, w: 2.13, h: 0.48,
+                    fontSize: 8.5, align: 'center', valign: 'middle', color: '000000', fontFace: FONT });
+                slide.addText(cap, { x: fx, y: 10.31, w: 2.13, h: 0.20,
+                    fontSize: 8, align: 'center', color: '555555', fontFace: FONT });
             });
-            if (logResult.note) {
-                const noteY = Math.min(8.95, Math.max(lastEndY + 0.15, 1.3));
-                slide.addText(`※ 특이사항 : ${logResult.note}`, { x: 0.16, y: noteY, w: 7.13, h: 0.32,
-                    fontSize: 11, italic: true, color: '555555', fontFace: F_BODY });
-            }
 
             const d = new Date();
             const ymd = `${String(d.getFullYear()).slice(2)}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}`;
