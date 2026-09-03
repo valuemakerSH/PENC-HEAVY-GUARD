@@ -277,6 +277,23 @@
     // ─── 이미지 저장소 (IndexedDB) ───
     // localStorage(5MB)는 사진 몇 장이면 초과하므로 이미지는 IndexedDB에 보관
     const IDB_NAME = 'heavyguard_db', IDB_STORE = 'images';
+    const IDB_TIMEOUT = 8000;   // 어떤 작업도 이 시간을 넘기면 실패로 간주하고 진행한다
+
+    // 저장소가 응답하지 않아도 앱이 매달리지 않도록 모든 IDB 작업을 감싼다.
+    //  (과거 결함: onabort/onblocked 를 처리하지 않아 Promise 가 영원히 resolve 되지 않았고,
+    //   그 결과 배치 분석이 그 사진에서 멈춰 나머지 사진이 통째로 유실됐다)
+    const withTimeout = (promise, fallback, what) => new Promise((res) => {
+        let done = false;
+        const t = setTimeout(() => {
+            if (done) return;
+            done = true;
+            console.warn('[HeavyGuard] IDB 응답 없음(' + what + ') → 건너뜀');
+            res(fallback);
+        }, IDB_TIMEOUT);
+        promise.then(v => { if (!done) { done = true; clearTimeout(t); res(v); } },
+                     e => { if (!done) { done = true; clearTimeout(t); console.warn('[HeavyGuard] IDB 오류(' + what + ')', e); res(fallback); } });
+    });
+
     const idbOpen = () => new Promise((res, rej) => {
         try {
             const rq = indexedDB.open(IDB_NAME, 1);
@@ -285,53 +302,34 @@
                 if (!db.objectStoreNames.contains(IDB_STORE)) db.createObjectStore(IDB_STORE);
             };
             rq.onsuccess = () => res(rq.result);
-            rq.onerror = () => rej(rq.error);
+            rq.onerror = () => rej(rq.error || new Error('idb open error'));
+            rq.onblocked = () => rej(new Error('idb blocked'));   // 다른 탭이 잡고 있는 경우
         } catch (e) { rej(e); }
     });
-    const idbPut = async (key, val) => {
+
+    // 트랜잭션 1건 실행. complete / error / abort 세 경로를 모두 닫는다.
+    const idbRun = (mode, fn, fallback) => withTimeout((async () => {
+        const db = await idbOpen();
         try {
-            const db = await idbOpen();
-            return await new Promise((res) => {
-                const t = db.transaction(IDB_STORE, 'readwrite');
-                t.objectStore(IDB_STORE).put(val, key);
-                t.oncomplete = () => res(true);
-                t.onerror = () => res(false);
+            return await new Promise((res, rej) => {
+                const t = db.transaction(IDB_STORE, mode);
+                let out = fallback;
+                const store = t.objectStore(IDB_STORE);
+                fn(store, (v) => { out = v; });
+                t.oncomplete = () => res(out);
+                t.onerror    = () => rej(t.error || new Error('tx error'));
+                t.onabort    = () => rej(t.error || new Error('tx abort'));   // 용량 초과가 오는 경로
             });
-        } catch (e) { console.warn('IDB 저장 실패', e); return false; }
-    };
-    const idbGet = async (key) => {
-        try {
-            const db = await idbOpen();
-            return await new Promise((res) => {
-                const t = db.transaction(IDB_STORE, 'readonly');
-                const rq = t.objectStore(IDB_STORE).get(key);
-                rq.onsuccess = () => res(rq.result || null);
-                rq.onerror = () => res(null);
-            });
-        } catch (e) { return null; }
-    };
-    const idbDel = async (key) => {
-        try {
-            const db = await idbOpen();
-            return await new Promise((res) => {
-                const t = db.transaction(IDB_STORE, 'readwrite');
-                t.objectStore(IDB_STORE).delete(key);
-                t.oncomplete = () => res(true);
-                t.onerror = () => res(false);
-            });
-        } catch (e) { return false; }
-    };
-    const idbClear = async () => {
-        try {
-            const db = await idbOpen();
-            return await new Promise((res) => {
-                const t = db.transaction(IDB_STORE, 'readwrite');
-                t.objectStore(IDB_STORE).clear();
-                t.oncomplete = () => res(true);
-                t.onerror = () => res(false);
-            });
-        } catch (e) { return false; }
-    };
+        } finally {
+            // 연결을 닫지 않으면 누적되어 이후 open 이 blocked 로 막힌다
+            try { db.close(); } catch (e) {}
+        }
+    })(), fallback, mode);
+
+    const idbPut   = (key, val) => idbRun('readwrite', (st, set) => { st.put(val, key); set(true); }, false);
+    const idbGet   = (key)      => idbRun('readonly',  (st, set) => { const r = st.get(key); r.onsuccess = () => set(r.result || null); }, null);
+    const idbDel   = (key)      => idbRun('readwrite', (st, set) => { st.delete(key); set(true); }, false);
+    const idbClear = ()         => idbRun('readwrite', (st, set) => { st.clear(); set(true); }, false);
 
     // ─── Icon 컴포넌트 ───
     const Icon = ({ children, size = 24, className = "", ...props }) => (
@@ -408,11 +406,15 @@
             let modelUnavailable = false;
 
             while (retries <= 2) {
+                // 신호는 잡히는데 데이터가 흐르지 않는 현장 상황에서 fetch 가 영원히 매달리는 것을 막는다
+                const ac = new AbortController();
+                const killer = setTimeout(() => ac.abort(), 60000);
                 try {
                     const response = await fetch(url, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(buildBody(model))
+                        body: JSON.stringify(buildBody(model)),
+                        signal: ac.signal
                     });
                     let data;
                     try { data = await response.json(); } catch { data = {}; }
@@ -458,9 +460,11 @@
 
                 } catch (err) {
                     retries++;
-                    lastErr = err.message;
+                    lastErr = err.name === 'AbortError' ? '응답 시간 초과(60초)' : err.message;
                     if (retries > 2) { modelUnavailable = true; break; }
                     await new Promise(r => setTimeout(r, 800 * retries));
+                } finally {
+                    clearTimeout(killer);
                 }
             }
             if (modelUnavailable) continue;   // 다음 모델로
@@ -922,7 +926,16 @@ ${SITE_RULES}`;
                 const restored = await Promise.all(cur.map(async h =>
                     h.image ? h : { ...h, image: (await idbGet('img_' + h.id)) || '' }
                 ));
-                if (alive) setHistory(restored);
+                if (!alive) return;
+                // 복원 중에 새로 분석된 기록을 덮어쓰지 않도록 병합한다
+                //  (과거 결함: setHistory(restored) 로 통째로 교체해 그 사이 추가된 사진이 사라졌다)
+                setHistory(prev => {
+                    const byId = new Map(restored.map(h => [h.id, h]));
+                    const merged = prev.map(h => (h.image ? h : (byId.get(h.id) || h)));
+                    const seen = new Set(merged.map(h => h.id));
+                    restored.forEach(h => { if (!seen.has(h.id)) merged.push(h); });
+                    return merged.sort((x, y) => y.id - x.id).slice(0, 40);
+                });
             })().catch(e => console.warn('이미지 복원 실패', e));
             return () => { alive = false; };
         }, []);
@@ -1170,12 +1183,16 @@ ${SITE_RULES}`;
                 canvas.width = Math.round(img.width * ratio);
                 canvas.height = Math.round(img.height * ratio);
                 canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
-                resolve(canvas.toDataURL('image/jpeg', 0.6));
+                const out = canvas.toDataURL('image/jpeg', 0.6);
+                canvas.width = canvas.height = 0;
+                img.src = '';
+                resolve(out);
             };
             img.onerror = () => resolve(''); // 실패 시 빈 썸네일
             img.src = base64Img;
         });
 
+        // 저장 결과를 돌려준다: 'ok' | 'meta-only'(이미지 유실) | 'none'
         const saveHistory = async (entry) => {
             // 썸네일 생성
             const thumb = entry.image ? await makeThumbnail(entry.image) : '';
@@ -1185,6 +1202,9 @@ ${SITE_RULES}`;
 
             setHistory(prev => {
                 const next = [item, ...prev].slice(0, 40);
+                // 40건을 넘겨 밀려난 기록의 이미지는 IDB 에서도 지운다 (누수 방지)
+                const keep = new Set(next.map(h => h.id));
+                prev.forEach(h => { if (!keep.has(h.id)) idbDel('img_' + h.id); });
                 // localStorage에는 이미지를 뺀 메타데이터만 기록
                 const persist = (list) => list.map(h => ({ ...h, image: h.imgInIdb ? '' : h.image }));
                 try {
@@ -1200,6 +1220,7 @@ ${SITE_RULES}`;
                 }
                 return next;   // 저장 실패해도 화면 목록은 유지
             });
+            return thumb ? (stored ? 'ok' : 'meta-only') : 'none';
         };
 
         // skipFinalize=true 시 setIsAnalyzing(false) 를 호출하지 않음 (배치 모드에서 사용)
@@ -1238,8 +1259,8 @@ ${SITE_RULES}`;
                         image: base64Img, report: parsed, gps: gpsCoords,
                         siteName: siteInfo.name || '미입력'
                     };
-                    await saveHistory(entry);
-                    savedEntry = { id: entry.id, timeSlot: entry.timeSlot };
+                    const saveState = await saveHistory(entry);
+                    savedEntry = { id: entry.id, timeSlot: entry.timeSlot, saveState };
                 } else {
                     alert(`오류: ${result.message}`);
                     if (result.errorType === 'AUTH') setIsKeyModalOpen(true);
@@ -1251,13 +1272,16 @@ ${SITE_RULES}`;
         };
 
         // ── 갤러리 이미지 선택 후 분석 ──
+        // ObjectURL 로 디코딩한다. FileReader 로 원본을 base64 문자열(원본의 1.33배)로
+        //  만들어 들고 있으면, 고화소 사진 여러 장을 연속 처리할 때 모바일에서
+        //  메모리가 터져 탭이 통째로 재시작되고 분석 중이던 기록이 사라진다.
         const resizeImageToBase64 = (file) => new Promise((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onerror = () => reject(new Error(`파일 읽기 실패: ${file.name}`));
-            reader.onload = (ev) => {
-                const img = new Image();
-                img.onerror = () => reject(new Error(`이미지 로드 실패: ${file.name}`));
-                img.onload = () => {
+            const url = URL.createObjectURL(file);
+            const img = new Image();
+            const cleanup = () => { try { URL.revokeObjectURL(url); } catch (e) {} img.src = ''; };
+            img.onerror = () => { cleanup(); reject(new Error(`이미지 로드 실패: ${file.name}`)); };
+            img.onload = () => {
+                try {
                     const MAX = 1280;
                     let w = img.width, h = img.height;
                     if (w > MAX || h > MAX) {
@@ -1267,11 +1291,14 @@ ${SITE_RULES}`;
                     const canvas = document.createElement('canvas');
                     canvas.width = w; canvas.height = h;
                     canvas.getContext('2d').drawImage(img, 0, 0, w, h);
-                    resolve(canvas.toDataURL('image/jpeg', 0.75));
-                };
-                img.src = ev.target.result;
+                    const out = canvas.toDataURL('image/jpeg', 0.75);
+                    canvas.width = canvas.height = 0;   // 캔버스 버퍼 즉시 해제
+                    resolve(out);
+                } catch (e) {
+                    reject(new Error(`이미지 변환 실패: ${file.name}`));
+                } finally { cleanup(); }
             };
-            reader.readAsDataURL(file);
+            img.src = url;
         });
 
         const analyzeFromGallery = async (e) => {
@@ -1293,17 +1320,26 @@ ${SITE_RULES}`;
             } else {
                 // 배치: skipFinalize=true로 로딩 상태 유지, 마지막에 한 번만 해제
                 try {
+                    const fails = [];
                     for (let i = 0; i < files.length; i++) {
                         setBatchProgress({ current: i + 1, total: files.length });
                         setLoadingMsg(`배치 분석 중 (${i+1}/${files.length})...`);
                         try {
                             const shot = await getShotTime(files[i]);
                             const b64 = await resizeImageToBase64(files[i]);
-                            await runAnalysis(b64, true, false, shot);
+                            const saved = await runAnalysis(b64, true, false, shot);
+                            if (!saved) fails.push(`${i+1}번 (분석 실패)`);
+                            else if (saved.saveState !== 'ok') fails.push(`${i+1}번 (사진 저장 실패)`);
                         } catch (err) {
                             console.error(`${i+1}번째 이미지 오류:`, err);
-                            // 개별 실패는 건너뛰고 계속 진행
+                            fails.push(`${i+1}번 (${err.message})`);
                         }
+                    }
+                    // 조용히 사라지지 않도록 결과를 반드시 알린다
+                    if (fails.length) {
+                        alert(`${files.length}장 중 ${fails.length}장을 저장하지 못했습니다.\n\n`
+                              + fails.join('\n')
+                              + `\n\n원본 사진은 갤러리에 그대로 있으니 다시 시도해 주세요.`);
                     }
                 } finally {
                     setBatchProgress(null);
@@ -1438,7 +1474,7 @@ ${SITE_RULES}`;
             e.target.value = '';
             if (!apiKey) { setIsKeyModalOpen(true); return; }
             setIsAnalyzing(true);
-            const added = [];
+            const added = [], fails = [];
             try {
                 for (let i = 0; i < files.length; i++) {
                     setBatchProgress({ current: i + 1, total: files.length });
@@ -1447,14 +1483,23 @@ ${SITE_RULES}`;
                         const shot = await getShotTime(files[i]);          // 촬영시각 우선
                         const b64 = await resizeImageToBase64(files[i]);
                         const saved = await runAnalysis(b64, true, true, shot);  // skipFinalize, silent, 촬영시각
-                        if (saved) added.push(saved);
+                        if (saved) {
+                            added.push(saved);
+                            if (saved.saveState !== 'ok') fails.push(`${i + 1}번 (사진 저장 실패)`);
+                        } else fails.push(`${i + 1}번 (분석 실패)`);
                     } catch (err) {
                         console.error(`${i + 1}번째 사진 오류:`, err);
+                        fails.push(`${i + 1}번 (${err.message})`);
                     }
                 }
             } finally {
                 setBatchProgress(null);
                 setIsAnalyzing(false);
+            }
+            if (fails.length) {
+                alert(`${files.length}장 중 ${fails.length}장을 저장하지 못했습니다.\n\n`
+                      + fails.join('\n')
+                      + `\n\n원본 사진은 갤러리에 그대로 있으니 다시 시도해 주세요.`);
             }
             // 새로 추가된 기록을 자동 선택.
             //  이전 구현은 setTimeout 안에서 todayEntries() 를 불렀는데, 그 함수가 참조하는
