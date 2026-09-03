@@ -12,6 +12,8 @@
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@latest/dist/coco-ssd.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pptxgenjs/3.12.0/pptxgen.bundle.js"></script>
 
     <style>
         body { 
@@ -146,11 +148,86 @@
     <div id="root" class="h-full w-full"></div>
 
 <script type="text/babel">
-    const { useState, useEffect, useRef, useCallback } = React;
+    const { useState, useEffect, useRef } = React;
 
-    // ─── 모델: gemini-2.5-flash (안정 버전) ───
-    // 원본 코드의 모델명은 존재하지 않는 모델명이었음
-    const GEMINI_MODEL = 'gemini-2.5-flash';
+    // ─── Gemini 모델 (최신 우선, 실패 시 자동 폴백) ───
+    // gemini-3.7-flash : 최신 GA Flash (권장)
+    // gemini-3.6-flash : 직전 안정 버전
+    // gemini-3-flash-preview : 무료 티어 제공
+    // gemini-2.5-flash : 최후 폴백
+    const GEMINI_MODELS = ['gemini-3.7-flash', 'gemini-3.6-flash', 'gemini-3-flash-preview', 'gemini-2.5-flash'];
+    let ACTIVE_MODEL = (() => {
+        try { const s = localStorage.getItem('gemini_active_model');
+              return (s && GEMINI_MODELS.includes(s)) ? s : GEMINI_MODELS[0]; }
+        catch { return GEMINI_MODELS[0]; }
+    })();
+    const getActiveModel = () => ACTIVE_MODEL;
+
+    // ─── 기본 API 키 (사내 배포용) ───
+    // 개인 키를 쓰려면 앱 우측 상단 ⚙︎ 에서 입력하면 이 값을 덮어씁니다.
+    const DEFAULT_API_KEY = 'AIzaSyDy2Je-TVTFToyXd_OPEbq1yZzWTvsrPV4';
+
+    // ─── 자주 쓰는 현장 / 지원인원 (드롭다운 기본값) ───
+    const SITE_PRESETS = [
+        '고양 풍동2지구 A3-1,2블록 공동주택 신축공사현장',
+        '느티마을3단지 리모델링사업현장',
+        '서울 서소문 제 11,12지구 오피스 신축공사',
+    ];
+    const STAFF_PRESETS = [
+        '송승호 구매혁신섹션',
+        '허화 설비계약그룹',
+    ];
+
+    // ─── 포스코이앤씨 표준 배너 (일지 PPTX용) ───
+    const BANNER_B64 = "data:image/png;base64,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KIbWW299MZQdmEFKpgJaRiXmzc5PzY7Pt5rqHEcTZm2NOTLE0VFEEgAUEakIZxrVrx8+fPz0pLNkN8RHl0lEX+Zzy6USG2IrwMUmiNgEiMtIfNcR8QXFZ98yNh6APRVet6dt6Y2u6ZKHLlvfR7hqxWe8+/b44iMWw0MPPRQ5T0RERERERERERETE9kdkPhERERERERERERERkflERERERERERERERERE5hMRERERERERERERERGZT0RERERERERERERERGQ+ERERERERERERERERkflERERERERERERERERE5hMRERERERERERERERGZT0RERERERERERERERGQ+ERERERERERERERGR+URERERERERERERERETmExEREREREREREREREZlPREREREREREREREREZD4RERERERERERERERGR+URERERERERERERERETmExEREREREREREREREZlPREREREREREREREREZD4REREREREREREREZH5REREREREREREREREROYTERERERERERERERERmU9ERERERERERERERERkPhEREREREREREREREZH5REREREREREREREREROYTERERERERERERERERmU9ERERERERERERERERkPhERERERERERERERkflERERERERERERERERE5hMRERERERERERERERGZT0RERERERERERERERGQ+ERERERERERERERERkflEREREREREREREREQMCv8/gCOy6e0lq1MAAAAASUVORK5CYII=";
+
+    // ─── 이미지 저장소 (IndexedDB) ───
+    // localStorage(5MB)는 사진 몇 장이면 초과하므로 이미지는 IndexedDB에 보관
+    const IDB_NAME = 'heavyguard_db', IDB_STORE = 'images';
+    const idbOpen = () => new Promise((res, rej) => {
+        try {
+            const rq = indexedDB.open(IDB_NAME, 1);
+            rq.onupgradeneeded = () => {
+                const db = rq.result;
+                if (!db.objectStoreNames.contains(IDB_STORE)) db.createObjectStore(IDB_STORE);
+            };
+            rq.onsuccess = () => res(rq.result);
+            rq.onerror = () => rej(rq.error);
+        } catch (e) { rej(e); }
+    });
+    const idbPut = async (key, val) => {
+        try {
+            const db = await idbOpen();
+            return await new Promise((res) => {
+                const t = db.transaction(IDB_STORE, 'readwrite');
+                t.objectStore(IDB_STORE).put(val, key);
+                t.oncomplete = () => res(true);
+                t.onerror = () => res(false);
+            });
+        } catch (e) { console.warn('IDB 저장 실패', e); return false; }
+    };
+    const idbGet = async (key) => {
+        try {
+            const db = await idbOpen();
+            return await new Promise((res) => {
+                const t = db.transaction(IDB_STORE, 'readonly');
+                const rq = t.objectStore(IDB_STORE).get(key);
+                rq.onsuccess = () => res(rq.result || null);
+                rq.onerror = () => res(null);
+            });
+        } catch (e) { return null; }
+    };
+    const idbClear = async () => {
+        try {
+            const db = await idbOpen();
+            return await new Promise((res) => {
+                const t = db.transaction(IDB_STORE, 'readwrite');
+                t.objectStore(IDB_STORE).clear();
+                t.oncomplete = () => res(true);
+                t.onerror = () => res(false);
+            });
+        } catch (e) { return false; }
+    };
 
     // ─── Icon 컴포넌트 ───
     const Icon = ({ children, size = 24, className = "", ...props }) => (
@@ -162,7 +239,7 @@
         Eye:           (p) => <Icon {...p}><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></Icon>,
         EyeOff:        (p) => <Icon {...p}><path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/><path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"/><line x1="2" x2="22" y1="2" y2="22"/></Icon>,
         Camera:        (p) => <Icon {...p}><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></Icon>,
-        Settings:      (p) => <Icon {...p}><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.47a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></Icon>,
+        Settings:      (p) => <Icon {...p}><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.47a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></Icon>,
         X:             (p) => <Icon {...p}><path d="M18 6 6 18"/><path d="m6 6 12 12"/></Icon>,
         AlertTriangle: (p) => <Icon {...p}><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></Icon>,
         Siren:         (p) => <Icon {...p}><path d="M7 18v-6a5 5 0 1 1 10 0v6"/><path d="M5 21a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2"/><path d="M21 11.343l-3.34-1.67"/><path d="M3 11.343l3.34-1.67"/></Icon>,
@@ -183,37 +260,90 @@
         Info:          (p) => <Icon {...p}><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></Icon>,
         Download:      (p) => <Icon {...p}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></Icon>,
         Image:         (p) => <Icon {...p}><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></Icon>,
+        History:       (p) => <Icon {...p}><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></Icon>,
+        MapPin:        (p) => <Icon {...p}><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></Icon>,
+        Layers:        (p) => <Icon {...p}><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></Icon>,
+        Trash2:        (p) => <Icon {...p}><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></Icon>,
+        ClipboardList: (p) => <Icon {...p}><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M9 12h6"/><path d="M9 16h6"/></Icon>,
+        Copy:          (p) => <Icon {...p}><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></Icon>,
+        Sun:           (p) => <Icon {...p}><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M5 5l1.5 1.5M17.5 17.5L19 19M2 12h2M20 12h2M5 19l1.5-1.5M17.5 6.5L19 5"/></Icon>,
+        Moon:          (p) => <Icon {...p}><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></Icon>,
+        Presentation:  (p) => <Icon {...p}><path d="M2 3h20"/><path d="M21 3v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V3"/><path d="m7 21 5-5 5 5"/></Icon>,
     };
 
     // ─── Gemini API 호출 (수정 2: 모델명, retry 로직 유지) ───
     async function callGeminiAPI(prompt, base64Image, apiKey, jsonMode = false) {
         if (!apiKey) return { success: false, errorType: 'AUTH', message: "API 키가 필요합니다." };
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`;
+
         const parts = [{ text: prompt }];
         if (base64Image) parts.push({ inlineData: { mimeType: "image/jpeg", data: base64Image.split(',')[1] } });
+        // Gemini 3.x 규격: temperature / top_p / top_k / candidate_count 미사용
         const requestBody = {
-            contents: [{ parts }],
+            contents: [{ role: 'user', parts }],
             ...(jsonMode ? { generationConfig: { responseMimeType: "application/json" } } : {})
         };
 
-        let retries = 0;
-        while (retries <= 2) {
-            try {
-                const response = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(requestBody) });
-                const data = await response.json();
-                if (!response.ok) {
-                    if (response.status === 400 || response.status === 403)
-                        return { success: false, errorType: 'AUTH', message: `API 키 오류 (${response.status}): ${data.error?.message}` };
-                    throw new Error(data.error?.message || `HTTP ${response.status}`);
+        // 현재 동작 확인된 모델을 먼저 시도, 실패 시 나머지 순차 폴백
+        const order = [ACTIVE_MODEL, ...GEMINI_MODELS.filter(m => m !== ACTIVE_MODEL)];
+        let lastErr = '알 수 없는 오류';
+
+        for (const model of order) {
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+            let retries = 0;
+            let modelUnavailable = false;
+
+            while (retries <= 2) {
+                try {
+                    const response = await fetch(url, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(requestBody)
+                    });
+                    let data;
+                    try { data = await response.json(); } catch { data = {}; }
+                    const errMsg = data.error?.message || `HTTP ${response.status}`;
+
+                    if (!response.ok) {
+                        // 모델 자체가 없거나 이 키로 못 쓰는 경우 → 다음 모델로
+                        const notFound = response.status === 404 ||
+                            /not found|not supported|does not exist|unsupported model/i.test(errMsg);
+                        if (notFound) { modelUnavailable = true; lastErr = errMsg; break; }
+                        // 키 문제는 폴백해도 동일하므로 즉시 반환
+                        if (response.status === 401 || response.status === 403) {
+                            return { success: false, errorType: 'AUTH', message: `API 키 오류: ${errMsg}` };
+                        }
+                        if (response.status === 400 && /api key|permission|credential/i.test(errMsg)) {
+                            return { success: false, errorType: 'AUTH', message: `API 키 오류: ${errMsg}` };
+                        }
+                        // 결제 필요 / 할당량 → 다음 모델 시도
+                        if (response.status === 429 || /quota|billing|exceeded/i.test(errMsg)) {
+                            modelUnavailable = true; lastErr = errMsg; break;
+                        }
+                        throw new Error(errMsg);
+                    }
+
+                    const text = data.candidates?.[0]?.content?.parts
+                        ?.map(p => p.text || '').join('') || '';
+                    if (!text.trim()) { lastErr = '빈 응답'; modelUnavailable = true; break; }
+
+                    // 성공한 모델을 기억
+                    if (ACTIVE_MODEL !== model) {
+                        ACTIVE_MODEL = model;
+                        try { localStorage.setItem('gemini_active_model', model); } catch(e) {}
+                        console.info('[HeavyGuard] 사용 모델 전환:', model);
+                    }
+                    return { success: true, text, model };
+
+                } catch (err) {
+                    retries++;
+                    lastErr = err.message;
+                    if (retries > 2) { modelUnavailable = true; break; }
+                    await new Promise(r => setTimeout(r, 800 * retries));
                 }
-                const text = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
-                return { success: true, text };
-            } catch (err) {
-                retries++;
-                if (retries > 2) return { success: false, errorType: 'NETWORK', message: `연결 실패: ${err.message}` };
-                await new Promise(r => setTimeout(r, 1000 * retries));
             }
+            if (modelUnavailable) continue;   // 다음 모델로
         }
+        return { success: false, errorType: 'NETWORK', message: `모든 모델 호출 실패 (${lastErr})` };
     }
 
     // ─── 보고서 컴포넌트 (수정 3: 완전히 재설계된 보고서 UI) ───
@@ -304,7 +434,7 @@
         );
     };
 
-    const ReportView = ({ reportData, capturedImage, siteInfo, onClose }) => {
+    const ReportView = ({ reportData, capturedImage, siteInfo, gpsCoords, onClose, onDownloadPDF }) => {
         const [checkedItems, setCheckedItems] = useState({});
         const toggleCheck = (idx) => setCheckedItems(prev => ({ ...prev, [idx]: !prev[idx] }));
 
@@ -327,6 +457,10 @@
                             <span className="font-bold text-gray-800 text-sm">안전 진단 보고서</span>
                         </div>
                         <div className="flex items-center gap-2">
+                            <button onClick={onDownloadPDF}
+                                className="flex items-center gap-1 text-xs bg-blue-50 text-blue-600 px-3 py-2 rounded-lg font-medium">
+                                <Icons.Download size={14}/> PDF
+                            </button>
                             <button onClick={() => window.print()}
                                 className="flex items-center gap-1 text-xs bg-gray-100 text-gray-600 px-3 py-2 rounded-lg">
                                 <Icons.Printer size={14}/> 인쇄
@@ -356,12 +490,13 @@
                                 <RiskLevelBadge level={reportData.riskLevel}/>
                             </div>
                             {/* 현장 정보 그리드 */}
-                            <div className="grid grid-cols-2 gap-2 text-xs">
+                            <div className="grid grid-cols-2 gap-2 text-xs" style={{gridTemplateColumns:"1fr 1fr"}}>
                                 {[
                                     ['현장명', siteInfo?.name || '미입력'],
                                     ['점검자', siteInfo?.inspector || '미입력'],
                                     ['날씨', siteInfo?.weather || '미입력'],
                                     ['발견 위험요소', `${reportData.hazards?.length || 0}건`],
+                                    ['GPS', gpsCoords ? `${gpsCoords.lat}, ${gpsCoords.lng}` : '미수집'],
                                 ].map(([k, v]) => (
                                     <div key={k} className="bg-gray-50 rounded-lg p-2.5">
                                         <span className="text-gray-400 block">{k}</span>
@@ -457,12 +592,40 @@
                     {/* ── 법적 고지 ── */}
                     <div className="text-center text-xs text-gray-400 px-4 pt-2 pb-6">
                         <p>본 AI 진단 결과는 참고용입니다. 최종 안전 판단 및 조치 책임은 현장 관리자에게 있습니다.</p>
-                        <p className="mt-1">Powered by HeavyGuard AI · {GEMINI_MODEL}</p>
+                        <p className="mt-1">Powered by HeavyGuard AI · {getActiveModel()}</p>
                     </div>
                 </div>
             </div>
         );
     };
+
+    // ─── 분석 프롬프트 (컴포넌트 외부 상수: 매 렌더마다 재생성 방지) ───
+    const ANALYSIS_PROMPT = `당신은 대한민국 KOSHA(안전보건공단) 인증 건설 안전관리 전문가입니다.
+첨부된 건설 현장 이미지를 면밀히 분석하여, 반드시 아래 JSON 스키마를 정확히 따르는 형태로만 응답하세요.
+JSON 외 다른 텍스트는 절대 포함하지 마세요.
+
+JSON 스키마:
+{
+  "riskLevel": "매우위험|위험|주의|양호 중 하나",
+  "summary": "현장 전반적인 상태 요약 (2~3문장)",
+  "hazards": [
+    {
+      "title": "위험요소 명칭",
+      "category": "추락|협착|감전|화재|전도|충돌|폭발|질식|기타 중 하나",
+      "severity": "high|medium|low 중 하나",
+      "law": "관련 법규 (예: 산업안전보건법 제38조)",
+      "koshaGuide": "KOSHA Guide 번호 또는 빈 문자열",
+      "description": "현재 불안전 상태 구체적 묘사 (1~2문장)",
+      "action": "즉각적으로 취해야 할 조치 (1~2문장)"
+    }
+  ],
+  "immediateActions": ["우선순위 순 즉시 조치 사항 (최대 5개, 구체적 실행 항목)"],
+  "recommendations": ["중기적 개선 권고 사항 (최대 4개)"]
+}
+
+점검 항목: 개구부/추락방호, 고소작업 안전대, 중장비 접근제한, 보호구(안전모/안전화/조끼), 비계/동바리, 전기/분전함, 화재/소화기, 통로확보
+이미지에서 실제로 보이는 위험요소만 포함하세요. 보이지 않는 것은 추측하지 마세요.
+위험요소가 없으면 hazards 빈 배열, riskLevel "양호"로 설정하세요.`;
 
     // ─── 메인 앱 ───
     const App = () => {
@@ -491,6 +654,34 @@
         const [isChatLoading, setIsChatLoading] = useState(false);
         const chatEndRef = useRef(null);
         const galleryInputRef = useRef(null);
+        const apiKeyInputRef = useRef(null);
+        const logPhotoInputRef = useRef(null);
+
+        // 히스토리
+        const [showHistory, setShowHistory] = useState(false);
+        const [history, setHistory] = useState(() => {
+            try { return JSON.parse(localStorage.getItem('heavyguard_history') || '[]'); } catch { return []; }
+        });
+        // GPS
+        const [gpsCoords, setGpsCoords] = useState(null);
+        // 배치 분석 진행상황
+        const [batchProgress, setBatchProgress] = useState(null); // {current, total}
+        // 분석 로딩 메시지
+        const [loadingMsg, setLoadingMsg] = useState('AI 분석 중...');
+
+        // ── 일일 지원일지 ──
+        const [showLogbook, setShowLogbook] = useState(false);
+        const [logMeta, setLogMeta] = useState(() => {
+            try { return JSON.parse(localStorage.getItem('heavyguard_logmeta') || 'null')
+                   || { site:'', date:'', supporter:'', requests:'' }; }
+            catch { return { site:'', date:'', supporter:'', requests:'' }; }
+        });
+        const [logSelected, setLogSelected] = useState({});
+        const [logSlots, setLogSlots] = useState({});
+        const [logResult, setLogResult] = useState(null);
+        const [isGenLog, setIsGenLog] = useState(false);
+        const [customField, setCustomField] = useState({ site: false, supporter: false });
+        const [genReqBusy, setGenReqBusy] = useState(false);
 
         // 카메라
         const [videoTrack, setVideoTrack] = useState(null);
@@ -510,10 +701,10 @@
         const loopRef = useRef(null);
 
         useEffect(() => {
-            const key = localStorage.getItem('gemini_api_key') || '';
+            const saved = localStorage.getItem('gemini_api_key') || '';
             const si = localStorage.getItem('heavyguard_site_info');
-            if (key) setApiKey(key);
-            else setTimeout(() => setIsKeyModalOpen(true), 1500);
+            // 저장된 개인 키가 있으면 우선, 없으면 내장 기본 키 사용
+            setApiKey(saved || DEFAULT_API_KEY);
             if (si) { try { setSiteInfo(JSON.parse(si)); } catch(_) {} }
 
             cocoSsd.load({ base: 'mobilenet_v2' }).then(model => {
@@ -529,6 +720,29 @@
         }, [chatMessages, showChat]);
 
         useEffect(() => { monitoringOnRef.current = monitoringOn; }, [monitoringOn]);
+
+        // 저장된 기록의 이미지를 IndexedDB에서 복원 (앱 시작 시 1회)
+        useEffect(() => {
+            let alive = true;
+            (async () => {
+                const cur = JSON.parse(localStorage.getItem('heavyguard_history') || '[]');
+                if (!cur.length) return;
+                const restored = await Promise.all(cur.map(async h =>
+                    h.image ? h : { ...h, image: (await idbGet('img_' + h.id)) || '' }
+                ));
+                if (alive) setHistory(restored);
+            })().catch(e => console.warn('이미지 복원 실패', e));
+            return () => { alive = false; };
+        }, []);
+
+        // GPS 위치 수집 (앱 시작 시 1회)
+        useEffect(() => {
+            if (!navigator.geolocation) return;
+            navigator.geolocation.getCurrentPosition(
+                (pos) => setGpsCoords({ lat: pos.coords.latitude.toFixed(5), lng: pos.coords.longitude.toFixed(5), acc: Math.round(pos.coords.accuracy) }),
+                () => {} // 거부해도 무시
+            );
+        }, []);
 
         const updateCameras = async () => {
             try {
@@ -564,7 +778,15 @@
                         requestRef.current = requestAnimationFrame(() => loopRef.current && loopRef.current());
                     };
                 }
-            } catch (e) { console.error("Camera error:", e); }
+            } catch (e) {
+                console.error("Camera error:", e);
+                const msg = e.name === 'NotAllowedError'
+                    ? '카메라 접근 권한이 거부되었습니다.\n브라우저 설정에서 카메라 권한을 허용해주세요.'
+                    : e.name === 'NotFoundError'
+                    ? '카메라를 찾을 수 없습니다.'
+                    : `카메라 오류: ${e.message}`;
+                alert(msg);
+            }
         };
 
         const toggleFlash = async () => {
@@ -597,10 +819,11 @@
             if (videoRef.current.readyState < 2) { requestRef.current = requestAnimationFrame(() => loopRef.current && loopRef.current()); return; }
 
             const ctx = canvasRef.current.getContext('2d');
-            if (canvasRef.current.width !== videoRef.current.videoWidth) {
-                canvasRef.current.width = videoRef.current.videoWidth;
-                canvasRef.current.height = videoRef.current.videoHeight;
-            }
+            if (canvasRef.current.width !== videoRef.current.videoWidth ||
+                    canvasRef.current.height !== videoRef.current.videoHeight) {
+                    canvasRef.current.width = videoRef.current.videoWidth;
+                    canvasRef.current.height = videoRef.current.videoHeight;
+                }
             ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
 
             if (!monitoringOnRef.current) {
@@ -675,68 +898,94 @@
         loopRef.current = predictLoop;
 
         // ─── 공통 분석 실행 함수 ───
-        const ANALYSIS_PROMPT = `당신은 대한민국 KOSHA(안전보건공단) 인증 건설 안전관리 전문가입니다.
-첨부된 건설 현장 이미지를 면밀히 분석하여, 반드시 아래 JSON 스키마를 정확히 따르는 형태로만 응답하세요.
-JSON 외 다른 텍스트는 절대 포함하지 마세요.
 
-JSON 스키마:
-{
-  "riskLevel": "매우위험|위험|주의|양호 중 하나",
-  "summary": "현장 전반적인 상태 요약 (2~3문장)",
-  "hazards": [
-    {
-      "title": "위험요소 명칭",
-      "category": "추락|협착|감전|화재|전도|충돌|폭발|질식|기타 중 하나",
-      "severity": "high|medium|low 중 하나",
-      "law": "관련 법규",
-      "koshaGuide": "KOSHA Guide 번호 또는 빈 문자열",
-      "description": "현재 불안전 상태 구체적 묘사 (1~2문장)",
-      "action": "즉각적으로 취해야 할 조치 (1~2문장)"
-    }
-  ],
-  "immediateActions": ["우선순위 순 즉시 조치 사항 (최대 5개)"],
-  "recommendations": ["중기적 개선 권고 사항 (최대 4개)"]
-}
+        // 썸네일 생성 (128px, 저화질) - localStorage 용량 절감
+        const makeThumbnail = (base64Img) => new Promise((resolve) => {
+            const img = new Image();
+            img.onload = () => {
+                // 420px: 히스토리 목록 표시 + 일지 PPTX 삽입 겸용 해상도
+                const MAX = 420;
+                const ratio = Math.min(1, Math.min(MAX / img.width, MAX / img.height));
+                const canvas = document.createElement('canvas');
+                canvas.width = Math.round(img.width * ratio);
+                canvas.height = Math.round(img.height * ratio);
+                canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+                resolve(canvas.toDataURL('image/jpeg', 0.6));
+            };
+            img.onerror = () => resolve(''); // 실패 시 빈 썸네일
+            img.src = base64Img;
+        });
 
-점검 항목: 개구부/추락방호, 고소작업 안전대, 중장비 접근제한, 보호구(안전모/안전화/조끼), 비계/동바리, 전기/분전함, 화재/소화기, 통로확보
-이미지에서 실제로 보이는 위험요소만 포함하세요. 보이지 않는 것은 추측하지 마세요.
-위험요소가 없으면 hazards 빈 배열, riskLevel "양호"로 설정하세요.`;
+        const saveHistory = async (entry) => {
+            // 썸네일 생성
+            const thumb = entry.image ? await makeThumbnail(entry.image) : '';
+            // 이미지는 IndexedDB에 저장 (localStorage 용량 초과 방지)
+            const stored = thumb ? await idbPut('img_' + entry.id, thumb) : false;
+            const item = { ...entry, image: thumb, imgInIdb: stored };
 
-        const runAnalysis = async (base64Img) => {
-            if (!apiKey) { setIsKeyModalOpen(true); setIsAnalyzing(false); return; }
+            setHistory(prev => {
+                const next = [item, ...prev].slice(0, 40);
+                // localStorage에는 이미지를 뺀 메타데이터만 기록
+                const persist = (list) => list.map(h => ({ ...h, image: h.imgInIdb ? '' : h.image }));
+                try {
+                    localStorage.setItem('heavyguard_history', JSON.stringify(persist(next)));
+                } catch (e) {
+                    console.warn('메타 저장 실패, 이미지 제거 후 재시도', e);
+                    try {
+                        localStorage.setItem('heavyguard_history',
+                            JSON.stringify(next.map(h => ({ ...h, image: '' }))));
+                    } catch (e2) {
+                        console.warn('메타 저장 최종 실패 — 이번 세션에서만 유지', e2);
+                    }
+                }
+                return next;   // 저장 실패해도 화면 목록은 유지
+            });
+        };
+
+        // skipFinalize=true 시 setIsAnalyzing(false) 를 호출하지 않음 (배치 모드에서 사용)
+        const runAnalysis = async (base64Img, skipFinalize = false, silent = false) => {
+            if (!apiKey) { setIsKeyModalOpen(true); if (!skipFinalize) setIsAnalyzing(false); return; }
             setCapturedImage(base64Img);
+            if (!skipFinalize) setLoadingMsg('AI가 이미지를 분석하고 있습니다...');
             try {
                 const result = await callGeminiAPI(ANALYSIS_PROMPT, base64Img, apiKey, true);
                 if (result.success) {
                     try {
                         const cleaned = result.text.replace(/```json\n?|\n?```/g, '').trim();
                         const parsed = JSON.parse(cleaned);
-                        setReportData(parsed); setShowReport(true);
+                        setReportData(parsed);
+                        if (!silent) setShowReport(true);   // 일지에서 추가 시엔 보고서 팝업 생략
+                        const now = new Date();
+                        await saveHistory({
+                            id: Date.now(),
+                            date: now.toLocaleString('ko-KR'),
+                            dayKey: `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`,
+                            timeSlot: now.getHours() < 12 ? '오전' : '오후',
+                            timeLabel: `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`,
+                            image: base64Img, report: parsed, gps: gpsCoords,
+                            siteName: siteInfo.name || '미입력'
+                        });
                     } catch (err) {
                         console.error("JSON 파싱 실패:", err);
                         setReportData({ riskLevel: '주의', summary: result.text, hazards: [], immediateActions: [], recommendations: [] });
-                        setShowReport(true);
+                        if (!silent) setShowReport(true);
                     }
                 } else {
                     alert(`오류: ${result.message}`);
                     if (result.errorType === 'AUTH') setIsKeyModalOpen(true);
                 }
             } catch (e) { console.error(e); alert("분석 중 오류가 발생했습니다."); }
-            setIsAnalyzing(false);
+            if (!skipFinalize) setIsAnalyzing(false);
         };
 
         // ── 갤러리 이미지 선택 후 분석 ──
-        const analyzeFromGallery = (e) => {
-            const file = e.target.files?.[0];
-            if (!file) return;
-            e.target.value = ''; // 같은 파일 재선택 허용
-            if (!apiKey) { setIsKeyModalOpen(true); return; }
-            setIsAnalyzing(true);
+        const resizeImageToBase64 = (file) => new Promise((resolve, reject) => {
             const reader = new FileReader();
+            reader.onerror = () => reject(new Error(`파일 읽기 실패: ${file.name}`));
             reader.onload = (ev) => {
                 const img = new Image();
+                img.onerror = () => reject(new Error(`이미지 로드 실패: ${file.name}`));
                 img.onload = () => {
-                    // 최대 1920px 리사이즈
                     const MAX = 1920;
                     let w = img.width, h = img.height;
                     if (w > MAX || h > MAX) {
@@ -746,28 +995,74 @@ JSON 스키마:
                     const canvas = document.createElement('canvas');
                     canvas.width = w; canvas.height = h;
                     canvas.getContext('2d').drawImage(img, 0, 0, w, h);
-                    runAnalysis(canvas.toDataURL('image/jpeg', 0.85));
+                    resolve(canvas.toDataURL('image/jpeg', 0.85));
                 };
                 img.src = ev.target.result;
             };
             reader.readAsDataURL(file);
+        });
+
+        const analyzeFromGallery = async (e) => {
+            const files = Array.from(e.target.files || []);
+            if (!files.length) return;
+            e.target.value = '';
+            if (!apiKey) { setIsKeyModalOpen(true); return; }
+            setIsAnalyzing(true);
+            if (files.length === 1) {
+                try {
+                    const b64 = await resizeImageToBase64(files[0]);
+                    await runAnalysis(b64); // skipFinalize=false: 내부에서 setIsAnalyzing(false)
+                } catch (err) {
+                    console.error(err);
+                    alert(`이미지 처리 오류: ${err.message}`);
+                    setIsAnalyzing(false);
+                }
+            } else {
+                // 배치: skipFinalize=true로 로딩 상태 유지, 마지막에 한 번만 해제
+                try {
+                    for (let i = 0; i < files.length; i++) {
+                        setBatchProgress({ current: i + 1, total: files.length });
+                        setLoadingMsg(`배치 분석 중 (${i+1}/${files.length})...`);
+                        try {
+                            const b64 = await resizeImageToBase64(files[i]);
+                            await runAnalysis(b64, true); // skipFinalize=true
+                        } catch (err) {
+                            console.error(`${i+1}번째 이미지 오류:`, err);
+                            // 개별 실패는 건너뛰고 계속 진행
+                        }
+                    }
+                } finally {
+                    setBatchProgress(null);
+                    setIsAnalyzing(false);
+                }
+            }
         };
 
-        // ─── 수정 3: 정밀 진단 (카메라 촬영) ───
+        // ─── 정밀 진단 (카메라 촬영) ───
         const analyzeSnapshot = async () => {
             if (!apiKey) { setIsKeyModalOpen(true); return; }
+            // 카메라 준비 상태 확인
+            if (!videoRef.current || !videoRef.current.videoWidth || !videoRef.current.videoHeight) {
+                alert('카메라가 아직 준비되지 않았습니다. 잠시 후 다시 시도해주세요.');
+                return;
+            }
             setIsAnalyzing(true);
             // 셔터 플래시 효과
             const flash = document.createElement('div');
             flash.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:white;z-index:9999;opacity:0.8;transition:opacity 0.2s';
             document.body.appendChild(flash);
             setTimeout(() => { flash.style.opacity='0'; setTimeout(()=>flash.remove(),200); }, 50);
-            // 현재 영상 프레임 캡처 후 공통 분석 실행
-            const snapCanvas = document.createElement('canvas');
-            snapCanvas.width = videoRef.current.videoWidth;
-            snapCanvas.height = videoRef.current.videoHeight;
-            snapCanvas.getContext('2d').drawImage(videoRef.current, 0, 0);
-            await runAnalysis(snapCanvas.toDataURL('image/jpeg', 0.85));
+            try {
+                const snapCanvas = document.createElement('canvas');
+                snapCanvas.width = videoRef.current.videoWidth;
+                snapCanvas.height = videoRef.current.videoHeight;
+                snapCanvas.getContext('2d').drawImage(videoRef.current, 0, 0);
+                await runAnalysis(snapCanvas.toDataURL('image/jpeg', 0.85));
+            } catch (e) {
+                console.error("촬영 오류:", e);
+                alert("촬영 중 오류가 발생했습니다.");
+                setIsAnalyzing(false);
+            }
         };
 
         // ─── 수정 4: 채팅 마크다운 렌더링 수정 ───
@@ -797,6 +1092,588 @@ JSON 스키마:
             const aiText = result.success ? result.text : `오류가 발생했습니다: ${result.message}`;
             setChatMessages(prev => [...prev, { sender: 'ai', text: aiText }]);
             setIsChatLoading(false);
+        };
+
+        // ═══════════════════════════════════════
+        //  일일 지원일지 자동 생성
+        // ═══════════════════════════════════════
+        const KDAYS = ['일','월','화','수','목','금','토'];
+        const todayKey = () => {
+            const n = new Date();
+            return `${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,'0')}-${String(n.getDate()).padStart(2,'0')}`;
+        };
+        const fmtKDate = (d = new Date()) =>
+            `'${String(d.getFullYear()).slice(2)}.${String(d.getMonth()+1).padStart(2,'0')}.${String(d.getDate()).padStart(2,'0')}(${KDAYS[d.getDay()]})`;
+
+        // 오늘 기록만 추출 (dayKey 없는 구버전 기록은 date 문자열로 보조 판별)
+        const todayEntries = () => {
+            const tk = todayKey();
+            const todayStr = new Date().toLocaleDateString('ko-KR');
+            return history.filter(h => h.dayKey ? h.dayKey === tk : (h.date||'').startsWith(todayStr));
+        };
+
+        const openLogbook = () => {
+            const list = todayEntries();
+            const sel = {}, slots = {};
+            list.forEach(h => { sel[h.id] = true; slots[h.id] = h.timeSlot || '오전'; });
+            setLogSelected(sel);
+            setLogSlots(slots);
+            setLogMeta(prev => ({
+                ...prev,
+                site: prev.site || siteInfo.name || '',
+                date: prev.date || fmtKDate(),
+                supporter: prev.supporter || siteInfo.inspector || '',
+            }));
+            // 저장된 값이 프리셋에 없으면 직접입력 모드로 열기
+            setCustomField({
+                site:      !!(logMeta.site      && !SITE_PRESETS.includes(logMeta.site)),
+                supporter: !!(logMeta.supporter && !STAFF_PRESETS.includes(logMeta.supporter)),
+            });
+            setLogResult(null);
+            setShowLogbook(true);
+        };
+
+        const saveLogMeta = (m) => {
+            setLogMeta(m);
+            try { localStorage.setItem('heavyguard_logmeta', JSON.stringify(m)); } catch(e) {}
+        };
+
+        // ── 일지에 사진 직접 추가 (갤러리 → 자동 분석 → 기록 등록) ──
+        const addPhotosToLog = async (e) => {
+            const files = Array.from(e.target.files || []);
+            if (!files.length) return;
+            e.target.value = '';
+            if (!apiKey) { setIsKeyModalOpen(true); return; }
+            setIsAnalyzing(true);
+            const newIds = [];
+            try {
+                for (let i = 0; i < files.length; i++) {
+                    setBatchProgress({ current: i + 1, total: files.length });
+                    setLoadingMsg(`사진 분석 중 (${i + 1}/${files.length})...`);
+                    try {
+                        const b64 = await resizeImageToBase64(files[i]);
+                        const before = Date.now();
+                        await runAnalysis(b64, true, true);   // skipFinalize, silent
+                        newIds.push(before);
+                    } catch (err) {
+                        console.error(`${i + 1}번째 사진 오류:`, err);
+                    }
+                }
+            } finally {
+                setBatchProgress(null);
+                setIsAnalyzing(false);
+            }
+            // 새로 추가된 오늘 기록을 자동 선택
+            setTimeout(() => {
+                const list = todayEntries();
+                setLogSelected(prev => {
+                    const next = { ...prev };
+                    list.forEach(h => { if (next[h.id] === undefined) next[h.id] = true; });
+                    return next;
+                });
+                setLogSlots(prev => {
+                    const next = { ...prev };
+                    list.forEach(h => { if (!next[h.id]) next[h.id] = h.timeSlot || '오전'; });
+                    return next;
+                });
+            }, 100);
+        };
+
+        // ── 지원업무(요청받은 사항) AI 초안 ──
+        const generateRequests = async () => {
+            if (!apiKey) { setIsKeyModalOpen(true); return; }
+            const picked = todayEntries().filter(h => logSelected[h.id]);
+            if (!picked.length) { alert('먼저 오늘 진단 기록을 선택해주세요.'); return; }
+            setGenReqBusy(true);
+            try {
+                const payload = picked.map((h, i) => ({
+                    idx: i,
+                    위험요소: (h.report?.hazards || []).map(z => `${z.title} [${z.category}]`),
+                    요약: (h.report?.summary || '').slice(0, 120),
+                }));
+                const prompt = `당신은 건설현장 안전관리 일일 지원을 나간 담당자입니다.
+아래는 오늘 현장에서 촬영·진단한 결과입니다. 이를 근거로
+'현장 안전관리 일일 지원결과 공유' 보고서의 [Ⅱ. 지원 업무 — 해당 현장으로부터 지원 요청 받은 사항] 항목을 역으로 정리하세요.
+
+【작성 규칙】
+1. 오늘 실제로 확인한 작업들을 근거로, 현장에서 요청받았을 법한 지원 업무를 항목으로 정리합니다.
+2. 개조식·명사형 종결. "~하였음" 같은 서술형 어미 금지.
+3. 유사 작업은 하나로 묶고, 3~6개 항목으로 정리하세요.
+4. 마지막 항목으로 "CCTV 모니터링"을 포함해도 좋습니다.
+
+【실제 사내 보고서 예시 — 이 문체를 그대로 따르세요】
+"중장비(항타기, 기중기, 굴착기, 천공기) 작업 시 주변 통제 확인"
+"정반 거푸집 설치 및 콘크리트 타설시 주변 통제 확인"
+"스크류 교체시 주변 통제 확인"
+"PRD 용접작업 시 주변 화재예방 관리"
+"CCTV 모니터링"
+
+【오늘 진단 데이터】
+${JSON.stringify(payload, null, 1)}
+
+【출력 - 아래 JSON만 출력】
+{ "requests": ["...", "..."] }`;
+
+                const res = await callGeminiAPI(prompt, null, apiKey, true);
+                if (!res.success) { alert(`초안 생성 오류: ${res.message}`); setGenReqBusy(false); return; }
+                let parsed;
+                try { parsed = JSON.parse(res.text.replace(/```json\n?|\n?```/g, '').trim()); }
+                catch (e) { alert('AI 응답 형식 오류입니다. 다시 시도해주세요.'); setGenReqBusy(false); return; }
+                const list = (parsed.requests || []).filter(Boolean);
+                if (list.length) saveLogMeta({ ...logMeta, requests: list.join('\n') });
+            } catch (e) {
+                console.error(e);
+                alert('초안 생성 중 오류가 발생했습니다.');
+            }
+            setGenReqBusy(false);
+        };
+
+        // AI로 지원결과 문장 생성
+        const generateLogbook = async () => {
+            if (!apiKey) { setIsKeyModalOpen(true); return; }
+            const picked = todayEntries().filter(h => logSelected[h.id]);
+            if (!picked.length) { alert('일지에 포함할 진단 기록을 1건 이상 선택해주세요.'); return; }
+            setIsGenLog(true);
+            try {
+                const payload = picked.map((h, i) => ({
+                    idx: i,
+                    시간: h.timeLabel || '',
+                    시간대: logSlots[h.id] || h.timeSlot || '오전',
+                    위험등급: h.report?.riskLevel || '',
+                    요약: h.report?.summary || '',
+                    위험요소: (h.report?.hazards || []).map(z => `${z.title} [${z.category}] → ${z.action}`),
+                    조치사항: (h.report?.immediateActions || []).slice(0, 3),
+                }));
+
+                const prompt = `당신은 포스코이앤씨 공사계약그룹 소속으로 건설현장 안전관리 일일 지원을 수행한 담당자입니다.
+아래 AI 안전진단 결과를 바탕으로 '현장 안전관리 일일 지원결과 공유' 보고서의 [Ⅲ. 지원 결과] 항목을 작성하세요.
+
+【작성 규칙】
+1. 각 항목은 "무슨 작업에 대해 어떤 안전지원을 했는지"를 line에, 구체적으로 확인·조치한 내용을 sub에 작성합니다.
+2. 실무 보고서 문체(개조식, 명사형 종결)를 사용하세요. "~하였음", "~함" 같은 서술형 어미는 쓰지 마세요.
+3. 진단 결과에 실제로 있는 내용만 사용하고, 없는 내용을 지어내지 마세요.
+4. 유사한 작업끼리는 하나의 항목으로 합쳐도 됩니다.
+
+【실제 사내 보고서 작성 예시 - 이 문체를 그대로 따르세요】
+line: "중장비(항타기, 기중기, 굴착기) 작업 시 주변 통제 상태 안전지원"
+sub:  "전도방지 철판 위치, 장비 운용 시 유도원을 통해 주변 근로자 통제 확인"
+
+line: "램프 조성 및 성토 작업 시 주변 통제 상태 안전지원"
+sub:  "근로자 접근통제, 유도원 배치 확인"
+
+line: "용접작업 시 주변 인화성 물질 확인 통한 화재예방 및 작업자 복장 확인"
+sub:  "불티 비산으로 인한 가연성 인화물질 화재 가능 여부 등 위험요소 확인"
+
+line: "개구부 작업시 근로자 안전고리 체결 여부 지속 확인"
+sub:  ""
+
+【입력 데이터】
+${JSON.stringify(payload, null, 1)}
+
+【출력 - 아래 JSON만 출력하세요】
+{
+  "items": [ { "idx": 0, "slot": "오전", "line": "...", "sub": "..." } ],
+  "note": "특이사항이나 후속 조치 필요사항 1~2문장 (없으면 빈 문자열)"
+}
+idx는 입력 데이터의 idx 값을 그대로 유지하고, slot은 입력의 시간대를 그대로 사용하세요.`;
+
+                const res = await callGeminiAPI(prompt, null, apiKey, true);
+                if (!res.success) {
+                    alert(`일지 생성 오류: ${res.message}`);
+                    if (res.errorType === 'AUTH') setIsKeyModalOpen(true);
+                    setIsGenLog(false);
+                    return;
+                }
+                let parsed;
+                try {
+                    parsed = JSON.parse(res.text.replace(/```json\n?|\n?```/g, '').trim());
+                } catch (e) {
+                    console.error('일지 JSON 파싱 실패:', e, res.text);
+                    alert('AI 응답 형식 오류입니다. 다시 시도해주세요.');
+                    setIsGenLog(false);
+                    return;
+                }
+                // idx로 원본 기록(이미지) 매핑
+                const items = (parsed.items || []).map(it => ({
+                    ...it,
+                    entry: picked[it.idx] || null,
+                }));
+                setLogResult({ items, note: parsed.note || '' });
+            } catch (e) {
+                console.error(e);
+                alert('일지 생성 중 오류가 발생했습니다.');
+            }
+            setIsGenLog(false);
+        };
+
+        // 일지 텍스트 (복사용)
+        const logbookAsText = () => {
+            if (!logResult) return '';
+            const L = [];
+            L.push('현장 안전관리 일일 지원결과 공유');
+            L.push('');
+            L.push('Ⅰ. 지원 개요');
+            L.push(`  ○ 현장명 : ${logMeta.site || ''}`);
+            L.push(`  ○ 지원일자 : ${logMeta.date || ''}`);
+            L.push(`  ○ 지원인원 : ${logMeta.supporter || ''}`);
+            L.push('');
+            L.push('Ⅱ. 지원 업무 (해당 현장으로부터 지원 요청 받은 사항)');
+            (logMeta.requests || '').split('\n').filter(s => s.trim())
+                .forEach((r, i) => L.push(`  ${i+1}) ${r.trim()}`));
+            L.push('');
+            L.push('Ⅲ. 지원 결과');
+            ['오전','오후'].forEach(slot => {
+                const items = logResult.items.filter(it => (it.slot || '오전') === slot);
+                if (!items.length) return;
+                L.push(`  [${slot}]`);
+                items.forEach(it => {
+                    L.push(`   • ${it.line}`);
+                    if (it.sub) L.push(`     → ${it.sub}`);
+                });
+                L.push('');
+            });
+            if (logResult.note) { L.push(`※ 특이사항 : ${logResult.note}`); }
+            return L.join('\n');
+        };
+
+        // ── 일지 PPTX 다운로드 (실제 사내 양식 좌표 그대로 재현) ──
+        // ── 일지 PPTX 다운로드 (실제 사내 양식 좌표 그대로 재현) ──
+        // ── 일지 PPTX 다운로드 (실제 사내 양식 좌표 그대로 재현) ──
+        // ── 일지 PPTX 다운로드 (실제 사내 양식 좌표 그대로 재현) ──
+        // 이미지 원본 비율 측정 (가로/세로 혼재 대응)
+        const measureImg = (src) => new Promise(res => {
+            const im = new Image();
+            im.onload  = () => res({ w: im.naturalWidth || 4, h: im.naturalHeight || 3 });
+            im.onerror = () => res({ w: 4, h: 3 });
+            im.src = src;
+        });
+        // 박스 안에 비율 유지하여 맞추고 중앙 정렬
+        const fitBox = (bx, by, bw, bh, iw, ih) => {
+            const r = Math.min(bw / iw, bh / ih);
+            const w = iw * r, h = ih * r;
+            return { x: bx + (bw - w) / 2, y: by + (bh - h) / 2, w, h };
+        };
+
+        const downloadLogbookPPTX = async () => {
+            if (!window.PptxGenJS) { alert('PPT 라이브러리 로딩 중입니다. 잠시 후 다시 시도해주세요.'); return; }
+            if (!logResult) { alert('먼저 AI 일지를 생성해주세요.'); return; }
+
+            // 모든 사진의 원본 비율을 먼저 측정
+            const allSrc = [...new Set(logResult.items.filter(i => i.entry?.image).map(i => i.entry.image))];
+            const dims = new Map();
+            for (const src of allSrc) dims.set(src, await measureImg(src));
+
+            const pptx = new PptxGenJS();
+            // 실측: 7.50 x 10.83 in
+            pptx.defineLayout({ name: 'SITE', width: 7.5, height: 10.83 });
+            pptx.layout = 'SITE';
+
+            // 원본 실측 서식
+            const F_TITLE = 'HY견명조';            // 제목 22pt bold
+            const F_SEC   = '나눔명조 ExtraBold';  // 섹션제목 16pt bold
+            const F_BODY  = '바탕';                // 본문/표 13pt
+            const SW = 7.5, SH = 10.83;
+            const TBL_X = 0.40, TBL_W = 6.93, C1 = 0.59;   // 표 위치 / 구분열 폭
+            const C2_X = TBL_X + C1, C2_W = TBL_W - C1;
+            const HDR_H = 0.29;
+            // 사진 박스(가로/세로 모두 수용) — 원본 양식 폭 유지, 높이 확대
+            const BOX_W = 2.76, BOX_H = 1.85;
+            const IMG_X = [1.45, 4.35];                     // 사진 2열 x좌표
+            const LINE = '7F9DB9';
+
+            // 슬라이드 기본 틀 (배너 + 제목)
+            const newSlide = () => {
+                const s = pptx.addSlide();
+                s.addImage({ data: BANNER_B64, x: 0, y: 0, w: SW, h: 0.63 });
+                s.addText('현장 안전관리 일일 지원결과 공유', {
+                    x: 0.16, y: 0.09, w: 6.08, h: 0.47,
+                    fontSize: 22, bold: true, color: '1A1A1A', fontFace: F_TITLE, valign: 'middle',
+                });
+                return s;
+            };
+
+            // 텍스트 줄수 추정 (폭 기준)
+            const nLines = (t, per) => Math.max(1, Math.ceil((t || '').length / per));
+
+            // 한 시간대(오전/오후) 섹션 렌더 → 사용한 높이 반환
+            const renderSlot = (s, startY, slot, items) => {
+                // 텍스트 높이 계산
+                let textH = 0.10;
+                items.forEach(it => {
+                    textH += nLines(it.line, 34) * 0.26;      // 13pt 바탕 기준
+                    if (it.sub) textH += nLines(it.sub, 33) * 0.25 + 0.03;
+                    textH += 0.06;
+                });
+                // 사진 그리드 높이
+                const pics = items.filter(it => it.entry?.image)
+                                  .map(it => ({ src: it.entry.image, dim: dims.get(it.entry.image) || { w: 4, h: 3 } }));
+                const picRows = Math.ceil(pics.length / 2);
+                const picH = picRows > 0 ? picRows * (BOX_H + 0.16) + 0.10 : 0;
+                const bodyH = Math.max(0.6, textH + picH + 0.12);
+
+                // 헤더행
+                s.addShape(pptx.ShapeType.rect, { x: TBL_X, y: startY, w: C1, h: HDR_H,
+                    fill: { color: 'DCE6F2' }, line: { color: LINE, width: 1 } });
+                s.addShape(pptx.ShapeType.rect, { x: C2_X, y: startY, w: C2_W, h: HDR_H,
+                    fill: { color: 'DCE6F2' }, line: { color: LINE, width: 1 } });
+                s.addText('구분', { x: TBL_X, y: startY, w: C1, h: HDR_H,
+                    fontSize: 13, bold: true, align: 'center', valign: 'middle', color: '1A1A1A', fontFace: F_BODY });
+                s.addText('지원 결과', { x: C2_X, y: startY, w: C2_W, h: HDR_H,
+                    fontSize: 13, bold: true, align: 'center', valign: 'middle', color: '1A1A1A', fontFace: F_BODY });
+
+                const bodyY = startY + HDR_H;
+                // 본문 셀 테두리 (내용보다 먼저 그려 z-order 아래로)
+                s.addShape(pptx.ShapeType.rect, { x: TBL_X, y: bodyY, w: C1, h: bodyH,
+                    fill: { color: 'FFFFFF' }, line: { color: LINE, width: 1 } });
+                s.addShape(pptx.ShapeType.rect, { x: C2_X, y: bodyY, w: C2_W, h: bodyH,
+                    line: { color: LINE, width: 1 } });
+                s.addText(slot, { x: TBL_X, y: bodyY, w: C1, h: bodyH,
+                    fontSize: 13, bold: true, align: 'center', valign: 'middle', color: '1A1A1A', fontFace: F_BODY });
+
+                // 본문 텍스트
+                let ty = bodyY + 0.08;
+                items.forEach(it => {
+                    const lh = nLines(it.line, 34) * 0.26;
+                    s.addText(`• ${it.line}`, { x: C2_X + 0.10, y: ty, w: C2_W - 0.20, h: lh,
+                        fontSize: 13, color: '000000', fontFace: F_BODY, valign: 'top' });
+                    ty += lh;
+                    if (it.sub) {
+                        const sh = nLines(it.sub, 33) * 0.25;
+                        s.addText(`→ ${it.sub}`, { x: C2_X + 0.30, y: ty, w: C2_W - 0.40, h: sh,
+                            fontSize: 13, color: '000000', fontFace: F_BODY, valign: 'top' });
+                        ty += sh + 0.03;
+                    }
+                    ty += 0.06;
+                });
+
+                // 사진 2열 그리드
+                let py = ty + 0.08;
+                pics.forEach((p, i) => {
+                    const col = i % 2;
+                    if (i > 0 && col === 0) py += BOX_H + 0.16;
+                    const f = fitBox(IMG_X[col], py, BOX_W, BOX_H, p.dim.w, p.dim.h);
+                    try {
+                        s.addImage({ data: p.src, x: f.x, y: f.y, w: f.w, h: f.h });
+                    } catch (e) { console.warn('이미지 삽입 실패', e); }
+                });
+
+                return HDR_H + bodyH;
+            };
+
+            // 시간대별 항목 (사진 6장 초과 시 슬라이드 분할)
+            const groupOf = slot => logResult.items.filter(it => (it.slot || '오전') === slot);
+            const chunk = (arr, n) => {
+                const out = [];
+                for (let i = 0; i < arr.length; i += n) out.push(arr.slice(i, i + n));
+                return out.length ? out : [[]];
+            };
+            // 첫 묶음만 크기를 달리 (첫 슬라이드는 개요·업무가 공간을 차지)
+            const chunkFirst = (arr, firstN, restN) => {
+                if (!arr.length) return [[]];
+                const out = [arr.slice(0, firstN)];
+                for (let i = firstN; i < arr.length; i += restN) out.push(arr.slice(i, i + restN));
+                return out;
+            };
+
+            let slide = newSlide();
+            let y, lastEndY = 0;
+
+            // ── Ⅰ. 지원 개요 ──
+            slide.addText('Ⅰ. 지원 개요', { x: 0.16, y: 0.76, w: 7.13, h: 0.32,
+                fontSize: 16, bold: true, color: '000000', fontFace: F_SEC });
+            [['현장명', logMeta.site], ['지원일자', logMeta.date], ['지원인원', logMeta.supporter]]
+                .forEach(([k, v], i) => {
+                    slide.addText(`○ ${k} : ${v || ''}`, {
+                        x: 0.45, y: 1.13 + i * 0.30, w: 6.9, h: 0.29,
+                        fontSize: 14, color: '000000', fontFace: F_BODY });
+                });
+
+            // ── Ⅱ. 지원 업무 ──
+            slide.addText([
+                { text: 'Ⅱ. 지원 업무 ', options: { fontSize: 16, bold: true, color: '000000', fontFace: F_SEC } },
+                { text: '(해당 현장으로부터 지원 요청 받은 사항)', options: { fontSize: 14, color: '333333', fontFace: F_BODY } },
+            ], { x: 0.16, y: 2.16, w: 7.13, h: 0.32 });
+
+            const reqs = (logMeta.requests || '').split('\n').map(s => s.trim()).filter(Boolean);
+            const reqH = Math.max(1.16, reqs.length * 0.26 + 0.16);
+            slide.addShape(pptx.ShapeType.rect, { x: TBL_X, y: 2.58, w: TBL_W, h: reqH,
+                fill: { color: 'FFFFFF' }, line: { color: LINE, width: 1 } });
+            reqs.forEach((r, i) => {
+                slide.addText(`${i + 1}) ${r}`, { x: TBL_X + 0.14, y: 2.66 + i * 0.26, w: TBL_W - 0.28, h: 0.25,
+                    fontSize: 13, color: '000000', fontFace: F_BODY });
+            });
+
+            // ── Ⅲ. 지원 결과 (오전) ──
+            const secY = 2.58 + reqH + 0.18;
+            slide.addText('Ⅲ. 지원 결과', { x: 0.16, y: secY, w: 7.13, h: 0.32,
+                fontSize: 16, bold: true, color: '000000', fontFace: F_SEC });
+            y = secY + 0.42;
+
+            // 시작 y에서 몇 개 항목(텍스트+사진)이 들어가는지 역산
+            const BOTTOM_LIMIT = 10.45;
+            const ITEM_TXT_H = 0.57;                       // 13pt 기준 항목당 텍스트 높이
+            const fitCount = (startY, maxN) => {
+                for (let n = maxN; n >= 1; n--) {
+                    const need = HDR_H + 0.10 + n * ITEM_TXT_H
+                               + Math.ceil(n / 2) * (BOX_H + 0.16) + 0.20;
+                    if (startY + need <= BOTTOM_LIMIT) return n;
+                }
+                return 1;
+            };
+            const amAll = groupOf('오전');
+            const firstN = fitCount(y, 6);                 // 1장: 개요·업무 차지분 반영
+            const restN  = fitCount(1.22, 6);              // 2장 이후
+            const amChunks = chunkFirst(amAll, firstN, restN);
+            amChunks.forEach((grp, gi) => {
+                if (gi > 0) {
+                    slide = newSlide();
+                    slide.addText('Ⅲ. 지원 결과 (계속)', { x: 0.16, y: 0.74, w: 7.13, h: 0.32,
+                        fontSize: 16, bold: true, color: '000000', fontFace: F_SEC });
+                    y = 1.22;
+                }
+                if (grp.length) lastEndY = y + renderSlot(slide, y, '오전', grp);
+            });
+
+            // ── Ⅲ. 지원 결과 (오후) — 새 슬라이드 ──
+            const pmGroups = groupOf('오후');
+            if (pmGroups.length) {
+                chunk(pmGroups, restN).forEach((grp, gi) => {
+                    slide = newSlide();
+                    slide.addText(gi === 0 ? 'Ⅲ. 지원 결과' : 'Ⅲ. 지원 결과 (계속)', {
+                        x: 0.16, y: 0.74, w: 7.13, h: 0.32,
+                        fontSize: 16, bold: true, color: '000000', fontFace: F_SEC });
+                    lastEndY = 1.22 + renderSlot(slide, 1.22, '오후', grp);
+                });
+            }
+
+            // ── 마지막 슬라이드 하단: 지원업무 수행 절차 (겹치면 새 슬라이드) ──
+            if (lastEndY > 9.15) { slide = newSlide(); }
+            slide.addText('※ 지원업무 수행 및 결과공유 절차', { x: 0.16, y: 9.32, w: 3.2, h: 0.28,
+                fontSize: 11, bold: true, color: '333333', fontFace: F_BODY });
+            const flow = [
+                ['PM 의견을 받아, 지원인원에게\n일일 안전관리 업무내용 전달', '[현장 공무팀 → 지원인원]', 0.40],
+                ['일일 안전관리 지원 수행하고,\n지원결과 작성하여 공무팀 제출', '[지원인원 → 현장 공무팀]', 2.89],
+                ['개별 지원결과를 취합하여\nPM 보고 및 피드백 공유', '[현장 공무팀 → PM]', 5.20],
+            ];
+            flow.forEach(([body, cap, fx]) => {
+                slide.addShape(pptx.ShapeType.rect, { x: fx, y: 9.64, w: 2.13, h: 0.49,
+                    fill: { color: 'F2F6FA' }, line: { color: LINE, width: 0.75 } });
+                slide.addText(body, { x: fx, y: 9.64, w: 2.13, h: 0.49,
+                    fontSize: 8.5, align: 'center', valign: 'middle', color: '000000', fontFace: F_BODY });
+                slide.addText(cap, { x: fx, y: 10.14, w: 2.13, h: 0.20,
+                    fontSize: 8, align: 'center', color: '555555', fontFace: F_BODY });
+            });
+            if (logResult.note) {
+                const noteY = Math.min(8.95, Math.max(lastEndY + 0.15, 1.3));
+                slide.addText(`※ 특이사항 : ${logResult.note}`, { x: 0.16, y: noteY, w: 7.13, h: 0.32,
+                    fontSize: 11, italic: true, color: '555555', fontFace: F_BODY });
+            }
+
+            const d = new Date();
+            const ymd = `${String(d.getFullYear()).slice(2)}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}`;
+            const site = (logMeta.site || '현장').replace(/[\\/:*?"<>|\s]/g, '_').slice(0, 20);
+            const who = (logMeta.supporter || '').split(/[\s(]/)[0] || '지원인원';
+            pptx.writeFile({ fileName: `${ymd}_현장_안전관리_일일_지원결과_${site}_${who}.pptx` });
+        };
+
+        // PDF 다운로드
+        // 주의: jsPDF 기본 폰트(helvetica)는 한글 미지원
+        // 한글 텍스트는 encodeURIComponent 후 표시하거나 '인쇄' 기능 권장
+        const downloadPDF = async (reportData, capturedImage, siteInfo, gpsCoords) => {
+            const { jsPDF } = window.jspdf;
+            if (!window.jspdf) { alert('PDF 라이브러리 로딩 중입니다. 잠시 후 다시 시도해주세요.'); return; }
+            const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+            const W = 210, margin = 15;
+            let y = 20;
+
+            const riskColor = { '매우위험': [220,38,38], '위험': [234,88,12], '주의': [202,138,4], '양호': [22,163,74] };
+            const [r,g,b] = riskColor[reportData.riskLevel] || [202,138,4];
+
+            // 헤더 컬러 바
+            doc.setFillColor(r,g,b); doc.rect(0, 0, W, 6, 'F');
+
+            // 제목
+            doc.setFontSize(18); doc.setFont('helvetica','bold'); doc.setTextColor(30,30,30);
+            doc.text('Construction Site AI Safety Report', margin, y); y += 8;
+            doc.setFontSize(9); doc.setFont('helvetica','normal'); doc.setTextColor(120,120,120);
+            doc.text(new Date().toLocaleString('ko-KR'), margin, y); y += 10;
+
+            // 현장 정보 박스
+            doc.setFillColor(248,250,252); doc.roundedRect(margin, y, W-margin*2, 22, 3, 3, 'F');
+            doc.setFontSize(9); doc.setTextColor(80,80,80);
+            const infoItems = [
+                ['현장명', siteInfo?.name||'미입력'], ['점검자', siteInfo?.inspector||'미입력'],
+                ['날씨', siteInfo?.weather||'미입력'], ['위험등급', reportData.riskLevel||'-'],
+                ['GPS', gpsCoords ? `${gpsCoords.lat}, ${gpsCoords.lng}` : '미수집'],
+                ['위험요소', `${reportData.hazards?.length||0}건`]
+            ];
+            infoItems.forEach(([k,v], i) => {
+                const col = i % 2 === 0 ? margin+3 : margin+3+(W-margin*2)/2;
+                const row = y + 5 + Math.floor(i/2)*7;
+                doc.setFont('helvetica','bold'); doc.text(k+':', col, row);
+                doc.setFont('helvetica','normal'); doc.text(String(v).substring(0,30), col+18, row);
+            });
+            y += 28;
+
+            // 캡처 이미지
+            if (capturedImage) {
+                try {
+                    const imgH = 55;
+                    doc.addImage(capturedImage, 'JPEG', margin, y, W-margin*2, imgH);
+                    y += imgH + 6;
+                } catch(e) {}
+            }
+
+            // 요약
+            if (reportData.summary) {
+                doc.setFontSize(11); doc.setFont('helvetica','bold'); doc.setTextColor(30,30,30);
+                doc.text('종합 요약', margin, y); y += 5;
+                doc.setFontSize(8.5); doc.setFont('helvetica','normal'); doc.setTextColor(80,80,80);
+                const lines = doc.splitTextToSize(reportData.summary, W-margin*2);
+                doc.text(lines, margin, y); y += lines.length * 4.5 + 6;
+            }
+
+            // 위험요소
+            if (reportData.hazards?.length > 0) {
+                doc.setFontSize(11); doc.setFont('helvetica','bold'); doc.setTextColor(30,30,30);
+                doc.text('위험요소 상세', margin, y); y += 6;
+                const sevColor = { high:[220,38,38], medium:[234,88,12], low:[37,99,235] };
+                reportData.hazards.forEach((h, i) => {
+                    if (y > 260) { doc.addPage(); y = 20; }
+                    const [hr,hg,hb] = sevColor[h.severity]||sevColor.medium;
+                    doc.setFillColor(hr,hg,hb); doc.rect(margin, y-1, 3, 10, 'F');
+                    doc.setFontSize(9); doc.setFont('helvetica','bold'); doc.setTextColor(30,30,30);
+                    doc.text(`${i+1}. ${h.title}`, margin+6, y+5);
+                    doc.setFont('helvetica','normal'); doc.setFontSize(8); doc.setTextColor(80,80,80);
+                    if (h.description) {
+                        const dl = doc.splitTextToSize(h.description, W-margin*2-8);
+                        doc.text(dl, margin+6, y+10); y += dl.length*3.5;
+                    }
+                    if (h.law) { doc.setTextColor(37,99,235); doc.text(`법규: ${h.law}`, margin+6, y+12); }
+                    doc.setTextColor(80,80,80);
+                    y += 18;
+                });
+            }
+
+            // 즉시 조치
+            if (reportData.immediateActions?.length > 0) {
+                if (y > 240) { doc.addPage(); y = 20; }
+                doc.setFontSize(11); doc.setFont('helvetica','bold'); doc.setTextColor(220,38,38);
+                doc.text('즉시 조치 사항', margin, y); y += 6;
+                reportData.immediateActions.forEach((a, i) => {
+                    doc.setFontSize(8.5); doc.setFont('helvetica','normal'); doc.setTextColor(80,80,80);
+                    const al = doc.splitTextToSize(`${i+1}. ${a}`, W-margin*2);
+                    doc.text(al, margin, y); y += al.length*4.5 + 2;
+                });
+                y += 4;
+            }
+
+            // 푸터
+            doc.setFontSize(7.5); doc.setTextColor(160,160,160);
+            doc.text('본 AI 진단 결과는 참고용이며, 최종 안전 판단 책임은 현장 관리자에게 있습니다. Powered by HeavyGuard AI', margin, 290);
+
+            const filename = `HeavyGuard_${new Date().toISOString().slice(0,10)}_${(siteInfo?.name||'현장').replace(/\s/g,'_')}.pdf`;
+            doc.save(filename);
         };
 
         // 현장 정보 저장
@@ -835,6 +1712,14 @@ JSON 스키마:
                                 {flashOn ? <Icons.Flash size={18}/> : <Icons.FlashOff size={18}/>}
                             </button>
                         )}
+                        <button onClick={() => setShowHistory(true)} className="p-2 rounded-full bg-black/30 backdrop-blur text-white relative">
+                            <Icons.History size={18}/>
+                            {history.length > 0 && (
+                                <span className="absolute -top-0.5 -right-0.5 bg-[#FF9500] text-white text-[8px] font-bold rounded-full w-3.5 h-3.5 flex items-center justify-center">
+                                    {history.length > 9 ? '9' : history.length}
+                                </span>
+                            )}
+                        </button>
                         <button onClick={() => setShowSiteForm(true)} className="p-2 rounded-full bg-black/30 backdrop-blur text-white">
                             <Icons.FileText size={18}/>
                         </button>
@@ -867,24 +1752,24 @@ JSON 스키마:
                 <div className="absolute bottom-0 w-full safe-area-bottom pb-6 pt-4 bg-gradient-to-t from-black/90 to-transparent z-30 px-8">
                     <div className="flex justify-between items-end max-w-sm mx-auto">
                         {/* 숨겨진 갤러리 input */}
-                        <input ref={galleryInputRef} type="file" accept="image/*"
+                        <input ref={galleryInputRef} type="file" accept="image/*" multiple
                             style={{display:'none'}} onChange={analyzeFromGallery}/>
 
                         {/* 모니터링 */}
-                        <div className="flex flex-col items-center gap-2 mb-1" style={{width:52}}>
+                        <div className="flex flex-col items-center gap-2 mb-1" style={{width:46}}>
                             <button onClick={() => { const next = !monitoringOn; monitoringOnRef.current = next; setMonitoringOn(next); }}
-                                className={`dock-btn ${monitoringOn ? 'active' : ''}`} style={{width:46,height:46}}>
-                                {monitoringOn ? <Icons.Eye size={20}/> : <Icons.EyeOff size={20} className="opacity-50"/>}
+                                className={`dock-btn ${monitoringOn ? 'active' : ''}`} style={{width:42,height:42}}>
+                                {monitoringOn ? <Icons.Eye size={18}/> : <Icons.EyeOff size={18} className="opacity-50"/>}
                             </button>
                             <span className="text-[10px] font-medium text-white/80">모니터링</span>
                         </div>
 
                         {/* 갤러리 분석 */}
-                        <div className="flex flex-col items-center gap-2 mb-1" style={{width:52}}>
+                        <div className="flex flex-col items-center gap-2 mb-1" style={{width:46}}>
                             <button onClick={() => galleryInputRef.current?.click()}
                                 disabled={isAnalyzing}
-                                className="dock-btn text-white disabled:opacity-40" style={{width:46,height:46}}>
-                                <Icons.Image size={20}/>
+                                className="dock-btn text-white disabled:opacity-40" style={{width:42,height:42}}>
+                                <Icons.Image size={18}/>
                             </button>
                             <span className="text-[10px] font-medium text-white/80">갤러리</span>
                         </div>
@@ -903,12 +1788,26 @@ JSON 스키마:
                         </div>
 
                         {/* AI 비서 */}
-                        <div className="flex flex-col items-center gap-2 mb-1" style={{width:52}}>
+                        <div className="flex flex-col items-center gap-2 mb-1" style={{width:46}}>
                             <button onClick={() => setShowChat(true)}
-                                className="dock-btn text-white" style={{width:46,height:46}}>
-                                <Icons.MessageSquare size={20}/>
+                                className="dock-btn text-white" style={{width:42,height:42}}>
+                                <Icons.MessageSquare size={18}/>
                             </button>
                             <span className="text-[10px] font-medium text-white/80">AI 비서</span>
+                        </div>
+
+                        {/* 일일 지원일지 */}
+                        <div className="flex flex-col items-center gap-2 mb-1" style={{width:46}}>
+                            <button onClick={openLogbook}
+                                className="dock-btn text-white relative" style={{width:42,height:42}}>
+                                <Icons.ClipboardList size={18}/>
+                                {todayEntries().length > 0 && (
+                                    <span className="absolute -top-1 -right-1 bg-[#34C759] text-white text-[9px] font-bold rounded-full w-4 h-4 flex items-center justify-center">
+                                        {todayEntries().length > 9 ? '9+' : todayEntries().length}
+                                    </span>
+                                )}
+                            </button>
+                            <span className="text-[10px] font-medium text-white/80">일지</span>
                         </div>
                     </div>
                 </div>
@@ -965,13 +1864,40 @@ JSON 스키마:
                     </div>
                 )}
 
+                {/* ── 전체 로딩 오버레이 ── */}
+                {isAnalyzing && (
+                    <div className="absolute inset-0 z-[58] flex flex-col items-center justify-center" style={{background:'rgba(0,0,0,0.75)',backdropFilter:'blur(8px)'}}>
+                        <div className="ios-glass-dark rounded-3xl px-10 py-8 flex flex-col items-center gap-4 max-w-xs w-full mx-6">
+                            <div className="w-16 h-16 rounded-full bg-[#007AFF]/20 flex items-center justify-center">
+                                <Icons.Loader size={32} className="text-[#007AFF]"/>
+                            </div>
+                            <div className="text-center">
+                                <p className="text-white font-bold text-base">{loadingMsg}</p>
+                                {batchProgress && (
+                                    <div className="mt-3 w-full">
+                                        <div className="flex justify-between text-xs text-gray-400 mb-1">
+                                            <span>진행</span><span>{batchProgress.current}/{batchProgress.total}</span>
+                                        </div>
+                                        <div className="w-full bg-gray-700 rounded-full h-1.5">
+                                            <div className="bg-[#007AFF] h-1.5 rounded-full transition-all" style={{width:`${(batchProgress.current/batchProgress.total)*100}%`}}/>
+                                        </div>
+                                    </div>
+                                )}
+                                <p className="text-gray-400 text-xs mt-2">KOSHA 기준 분석 중...</p>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
                 {/* ── 보고서 모달 (수정 3: 완전 재설계) ── */}
                 {showReport && (
                     <ReportView
                         reportData={reportData}
                         capturedImage={capturedImage}
                         siteInfo={siteInfo}
+                        gpsCoords={gpsCoords}
                         onClose={() => setShowReport(false)}
+                        onDownloadPDF={() => downloadPDF(reportData, capturedImage, siteInfo, gpsCoords)}
                     />
                 )}
 
@@ -1002,6 +1928,353 @@ JSON 스키마:
                     </div>
                 )}
 
+                {/* ── 일일 지원일지 모달 ── */}
+                {showLogbook && (
+                    <div className="absolute inset-0 z-50 bg-[#1C1C1E] flex flex-col animate-slide-up">
+                        <div className="bg-[#2C2C2E] border-b border-gray-700 p-4 safe-area-top flex justify-between items-center">
+                            <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                                <span className="bg-[#34C759] p-1 rounded-md"><Icons.ClipboardList size={16} className="text-white"/></span>
+                                일일 지원일지
+                            </h2>
+                            <button onClick={() => setShowLogbook(false)} className="bg-[#3A3A3C] p-2 rounded-full text-gray-300">
+                                <Icons.X size={20}/>
+                            </button>
+                        </div>
+
+                        <div className="flex-1 overflow-y-auto hide-scrollbar p-4 space-y-4 pb-6">
+
+                            {/* Ⅰ. 지원 개요 */}
+                            <div className="bg-[#2C2C2E] rounded-2xl p-4 border border-gray-700">
+                                <h3 className="text-sm font-bold text-white mb-3">Ⅰ. 지원 개요</h3>
+                                {[
+                                    { key:'site',      label:'현장명',   opts: SITE_PRESETS,  ph:'현장명을 직접 입력하세요' },
+                                    { key:'supporter', label:'지원인원', opts: STAFF_PRESETS, ph:'예: 홍길동 공사계약그룹' },
+                                ].map(({key,label,opts,ph}) => (
+                                    <div key={key} className="mb-2.5">
+                                        <label className="text-[11px] text-gray-400 block mb-1">{label}</label>
+                                        <select
+                                            value={customField[key] ? '__custom__' : (opts.includes(logMeta[key]) ? logMeta[key] : '')}
+                                            onChange={e => {
+                                                const v = e.target.value;
+                                                if (v === '__custom__') {
+                                                    setCustomField(p => ({ ...p, [key]: true }));
+                                                    saveLogMeta({ ...logMeta, [key]: '' });
+                                                } else {
+                                                    setCustomField(p => ({ ...p, [key]: false }));
+                                                    saveLogMeta({ ...logMeta, [key]: v });
+                                                }
+                                            }}
+                                            className="w-full bg-[#1C1C1E] border border-gray-600 rounded-xl px-3 py-2.5 text-white text-sm outline-none focus:border-[#34C759] appearance-none"
+                                            style={{ backgroundImage:"url(\"data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2'%3e%3cpolyline points='6 9 12 15 18 9'/%3e%3c/svg%3e\")", backgroundRepeat:'no-repeat', backgroundPosition:'right 12px center', backgroundSize:'16px' }}>
+                                            <option value="">선택하세요</option>
+                                            {opts.map(o => <option key={o} value={o}>{o}</option>)}
+                                            <option value="__custom__">직접 입력…</option>
+                                        </select>
+                                        {customField[key] && (
+                                            <input type="text" value={logMeta[key] || ''} autoFocus
+                                                onChange={e => saveLogMeta({ ...logMeta, [key]: e.target.value })}
+                                                placeholder={ph}
+                                                className="w-full mt-2 bg-[#1C1C1E] border border-[#34C759]/60 rounded-xl px-3 py-2.5 text-white text-sm outline-none focus:border-[#34C759] placeholder:text-gray-600"/>
+                                        )}
+                                    </div>
+                                ))}
+                                {/* 지원일자 */}
+                                <div className="mb-2.5">
+                                    <label className="text-[11px] text-gray-400 block mb-1">지원일자</label>
+                                    <div className="flex gap-2">
+                                        <input type="text" value={logMeta.date || ''}
+                                            onChange={e => saveLogMeta({ ...logMeta, date: e.target.value })}
+                                            placeholder="예: '25.11.20(목)"
+                                            className="flex-1 bg-[#1C1C1E] border border-gray-600 rounded-xl px-3 py-2.5 text-white text-sm outline-none focus:border-[#34C759] placeholder:text-gray-600"/>
+                                        <button onClick={() => saveLogMeta({ ...logMeta, date: fmtKDate() })}
+                                            className="px-3 rounded-xl bg-gray-700 text-gray-200 text-xs font-medium whitespace-nowrap">오늘</button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Ⅱ. 지원 업무 */}
+                            <div className="bg-[#2C2C2E] rounded-2xl p-4 border border-gray-700">
+                                <div className="flex items-center justify-between mb-1">
+                                    <h3 className="text-sm font-bold text-white">Ⅱ. 지원 업무</h3>
+                                    <button onClick={generateRequests} disabled={genReqBusy}
+                                        className="flex items-center gap-1 text-[11px] bg-[#007AFF]/20 text-[#4DA3FF] px-2.5 py-1 rounded-lg font-medium disabled:opacity-40">
+                                        {genReqBusy ? <><Icons.Loader size={11}/> 작성 중</> : <><Icons.Sparkles size={11}/> AI 초안</>}
+                                    </button>
+                                </div>
+                                <p className="text-[11px] text-gray-500 mb-2">현장으로부터 요청받은 사항 · 한 줄에 하나씩</p>
+                                <textarea rows={4} value={logMeta.requests || ''}
+                                    onChange={e => saveLogMeta({ ...logMeta, requests: e.target.value })}
+                                    placeholder={"중장비(항타기, 기중기, 굴착기) 작업 시 주변 통제 확인\nGATE1 램프 조성 및 성토 시 주변 통제 상태 안전지원\nPRD 용접작업 시 주변 인화성 물질 제거 등 화재예방 관리\nCCTV 모니터링"}
+                                    className="w-full bg-[#1C1C1E] border border-gray-600 rounded-xl px-3 py-2.5 text-white text-sm outline-none focus:border-[#34C759] placeholder:text-gray-600 leading-relaxed resize-none"/>
+                            </div>
+
+                            {/* Ⅲ. 오늘 진단 기록 선택 */}
+                            <div className="bg-[#2C2C2E] rounded-2xl p-4 border border-gray-700">
+                                <div className="flex items-center justify-between mb-1">
+                                    <h3 className="text-sm font-bold text-white">Ⅲ. 오늘 진단 기록</h3>
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-[11px] bg-gray-700 text-gray-300 px-2 py-0.5 rounded-full">
+                                            {todayEntries().filter(h => logSelected[h.id]).length} / {todayEntries().length}
+                                        </span>
+                                        <button onClick={() => logPhotoInputRef.current?.click()} disabled={isAnalyzing}
+                                            className="flex items-center gap-1 text-[11px] bg-[#34C759]/20 text-[#4ADE80] px-2.5 py-1 rounded-lg font-medium disabled:opacity-40">
+                                            <Icons.Image size={11}/> 사진 추가
+                                        </button>
+                                    </div>
+                                </div>
+                                <input ref={logPhotoInputRef} type="file" accept="image/*" multiple
+                                    style={{display:'none'}} onChange={addPhotosToLog}/>
+                                <p className="text-[11px] text-gray-500 mb-3">일지에 넣을 기록을 고르고 오전/오후를 지정하세요</p>
+
+                                {todayEntries().length === 0 ? (
+                                    <div className="text-center py-7 text-gray-500">
+                                        <Icons.Camera size={30} className="opacity-30 mx-auto mb-2"/>
+                                        <p className="text-xs mb-1">오늘 진단한 기록이 없습니다</p>
+                                        <p className="text-[11px] text-gray-600 mb-4">현장에서 찍은 사진을 불러오면<br/>AI가 분석해서 일지 항목으로 만듭니다</p>
+                                        <button onClick={() => logPhotoInputRef.current?.click()} disabled={isAnalyzing}
+                                            className="inline-flex items-center gap-1.5 bg-[#34C759] text-white px-4 py-2.5 rounded-xl text-xs font-bold disabled:opacity-40">
+                                            <Icons.Image size={14}/> 갤러리에서 사진 불러오기
+                                        </button>
+                                    </div>
+                                ) : (
+                                    <div className="space-y-2">
+                                        {todayEntries().map(h => {
+                                            const on = !!logSelected[h.id];
+                                            const slot = logSlots[h.id] || h.timeSlot || '오전';
+                                            return (
+                                                <div key={h.id} className={`rounded-xl border p-2.5 transition-all ${on ? 'bg-[#1C1C1E] border-[#34C759]/50' : 'bg-[#1C1C1E]/40 border-gray-700 opacity-50'}`}>
+                                                    <div className="flex gap-2.5 items-start">
+                                                        <button onClick={() => setLogSelected(p => ({ ...p, [h.id]: !on }))}
+                                                            className={`w-5 h-5 rounded-md border-2 flex-shrink-0 mt-0.5 flex items-center justify-center ${on ? 'bg-[#34C759] border-[#34C759]' : 'border-gray-500'}`}>
+                                                            {on && <span className="text-white text-[11px] font-bold">✓</span>}
+                                                        </button>
+                                                        {h.image && <img src={h.image} className="w-12 h-12 rounded-lg object-cover flex-shrink-0 bg-black"/>}
+                                                        <div className="flex-1 min-w-0">
+                                                            <div className="flex items-center gap-1.5 mb-1">
+                                                                <span className="text-[10px] text-gray-400">{h.timeLabel || ''}</span>
+                                                                <span className="text-[10px] text-orange-400">위험 {h.report?.hazards?.length || 0}건</span>
+                                                            </div>
+                                                            <p className="text-[11px] text-gray-300 leading-snug line-clamp-2">
+                                                                {(h.report?.hazards || []).map(z => z.title).join(', ') || h.report?.summary?.slice(0,50) || '-'}
+                                                            </p>
+                                                        </div>
+                                                        <div className="flex flex-col gap-1 flex-shrink-0">
+                                                            {['오전','오후'].map(s => (
+                                                                <button key={s} onClick={() => setLogSlots(p => ({ ...p, [h.id]: s }))}
+                                                                    className={`text-[10px] px-2 py-1 rounded-md font-medium flex items-center gap-1 ${slot === s ? 'bg-[#007AFF] text-white' : 'bg-gray-700 text-gray-400'}`}>
+                                                                    {s === '오전' ? <Icons.Sun size={10}/> : <Icons.Moon size={10}/>}{s}
+                                                                </button>
+                                                            ))}
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* AI 생성 버튼 */}
+                            <button onClick={generateLogbook} disabled={isGenLog || todayEntries().length === 0}
+                                className="w-full bg-[#34C759] text-white rounded-2xl py-4 font-bold text-sm flex items-center justify-center gap-2 disabled:opacity-40 active:scale-[0.98] transition-transform">
+                                {isGenLog ? <><Icons.Loader size={18}/> AI가 일지를 작성 중입니다...</> : <><Icons.Sparkles size={18}/> AI 지원일지 자동 작성</>}
+                            </button>
+
+                            {/* 생성 결과 — 실제 보고서 레이아웃 미리보기 */}
+                            {logResult && (
+                                <div className="bg-white rounded-2xl overflow-hidden">
+                                    <div className="bg-gray-100 px-4 py-2.5 border-b border-gray-200 flex items-center justify-between">
+                                        <span className="text-xs font-bold text-gray-700">보고서 미리보기</span>
+                                        <span className="text-[10px] bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium">
+                                            {logResult.items.length}개 항목
+                                        </span>
+                                    </div>
+
+                                    {/* ── 실제 양식 재현 ── */}
+                                    <div className="px-3 pb-3 pt-0 bg-white" style={{ fontFamily: '"바탕", Batang, serif', color: '#000' }}>
+                                        <img src={BANNER_B64} className="w-full block" alt=""/>
+                                        <h1 className="text-[15px] font-bold mt-1.5 mb-2.5">현장 안전관리 일일 지원결과 공유</h1>
+
+                                        {/* Ⅰ. 지원 개요 */}
+                                        <p className="text-[12.5px] font-bold mb-1">Ⅰ. 지원 개요</p>
+                                        <div className="pl-3 mb-3 space-y-0.5">
+                                            {[['현장명', logMeta.site], ['지원일자', logMeta.date], ['지원인원', logMeta.supporter]]
+                                                .map(([k, v]) => (
+                                                <p key={k} className="text-[11.5px]">○ {k} : {v || <span className="text-gray-400">(미입력)</span>}</p>
+                                            ))}
+                                        </div>
+
+                                        {/* Ⅱ. 지원 업무 */}
+                                        <p className="text-[12.5px] font-bold mb-1">
+                                            Ⅱ. 지원 업무 <span className="text-[10px] font-normal text-gray-600">(해당 현장으로부터 지원 요청 받은 사항)</span>
+                                        </p>
+                                        <div className="border mb-3 px-2.5 py-2" style={{ borderColor: '#7F9DB9' }}>
+                                            {(logMeta.requests || '').split('\n').map(s => s.trim()).filter(Boolean).length === 0
+                                                ? <p className="text-[11px] text-gray-400">(지원 업무 미입력 — AI 초안 버튼을 눌러보세요)</p>
+                                                : (logMeta.requests || '').split('\n').map(s => s.trim()).filter(Boolean).map((r, i) => (
+                                                    <p key={i} className="text-[11.5px] leading-relaxed">{i + 1}) {r}</p>
+                                                ))}
+                                        </div>
+
+                                        {/* Ⅲ. 지원 결과 */}
+                                        <p className="text-[12.5px] font-bold mb-1">Ⅲ. 지원 결과</p>
+                                        <table className="w-full border-collapse" style={{ tableLayout: 'fixed' }}>
+                                            <thead>
+                                                <tr>
+                                                    <th className="text-[11px] font-bold py-1 border"
+                                                        style={{ width: '52px', background: '#DCE6F2', borderColor: '#7F9DB9' }}>구분</th>
+                                                    <th className="text-[11px] font-bold py-1 border"
+                                                        style={{ background: '#DCE6F2', borderColor: '#7F9DB9' }}>지원 결과</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {['오전', '오후'].map(slot => {
+                                                    const items = logResult.items.filter(it => (it.slot || '오전') === slot);
+                                                    if (!items.length) return null;
+                                                    const pics = items.filter(it => it.entry?.image);
+                                                    return (
+                                                        <tr key={slot}>
+                                                            <td className="text-[11px] font-bold text-center align-middle border"
+                                                                style={{ borderColor: '#7F9DB9' }}>{slot}</td>
+                                                            <td className="border px-2 py-2 align-top" style={{ borderColor: '#7F9DB9' }}>
+                                                                {items.map((it, i) => (
+                                                                    <div key={i} className="mb-1">
+                                                                        <p className="text-[11.5px] leading-snug">• {it.line}</p>
+                                                                        {it.sub && <p className="text-[11.5px] leading-snug pl-2.5">→ {it.sub}</p>}
+                                                                    </div>
+                                                                ))}
+                                                                {pics.length > 0 && (
+                                                                    <div className="grid grid-cols-2 gap-1.5 mt-2">
+                                                                        {pics.map((it, i) => (
+                                                                            <div key={i} className="bg-gray-50 flex items-center justify-center"
+                                                                                 style={{ aspectRatio: '2.76 / 1.85' }}>
+                                                                                <img src={it.entry.image} alt=""
+                                                                                     className="max-w-full max-h-full object-contain"/>
+                                                                            </div>
+                                                                        ))}
+                                                                    </div>
+                                                                )}
+                                                            </td>
+                                                        </tr>
+                                                    );
+                                                })}
+                                            </tbody>
+                                        </table>
+
+                                        {logResult.note && (
+                                            <p className="text-[10.5px] text-gray-600 italic mt-2">※ 특이사항 : {logResult.note}</p>
+                                        )}
+
+                                        {/* 하단 절차 */}
+                                        <p className="text-[10px] font-bold text-gray-700 mt-3 mb-1">※ 지원업무 수행 및 결과공유 절차</p>
+                                        <div className="grid grid-cols-3 gap-1.5">
+                                            {[['PM 의견을 받아, 지원인원에게 일일 안전관리 업무내용 전달', '[현장 공무팀 → 지원인원]'],
+                                              ['일일 안전관리 지원 수행하고, 지원결과 작성하여 공무팀 제출', '[지원인원 → 현장 공무팀]'],
+                                              ['개별 지원결과를 취합하여 PM 보고 및 피드백 공유', '[현장 공무팀 → PM]']].map(([b, cap], i) => (
+                                                <div key={i}>
+                                                    <div className="border text-[8px] leading-tight p-1 text-center"
+                                                         style={{ borderColor: '#7F9DB9', background: '#F2F6FA', minHeight: '40px' }}>{b}</div>
+                                                    <p className="text-[7.5px] text-center text-gray-500 mt-0.5">{cap}</p>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+
+                                    {/* 액션 버튼 */}
+                                    <div className="flex gap-2 p-3 bg-gray-50 border-t border-gray-200">
+                                        <button onClick={() => {
+                                            const t = logbookAsText();
+                                            if (navigator.clipboard?.writeText) {
+                                                navigator.clipboard.writeText(t).then(() => alert('일지 내용이 복사되었습니다.\n기존 PPT 양식에 붙여넣기 하세요.'))
+                                                    .catch(() => alert('복사 실패. 텍스트를 길게 눌러 직접 복사해주세요.'));
+                                            } else {
+                                                const ta = document.createElement('textarea');
+                                                ta.value = t; document.body.appendChild(ta); ta.select();
+                                                try { document.execCommand('copy'); alert('일지 내용이 복사되었습니다.'); } catch(e) { alert('복사에 실패했습니다.'); }
+                                                ta.remove();
+                                            }
+                                        }} className="flex-1 flex items-center justify-center gap-1.5 bg-gray-200 text-gray-700 rounded-xl py-3 text-xs font-bold">
+                                            <Icons.Copy size={14}/> 텍스트 복사
+                                        </button>
+                                        <button onClick={() => { downloadLogbookPPTX().catch(e => { console.error(e); alert("PPT 생성 오류: "+e.message); }); }}
+                                            className="flex-1 flex items-center justify-center gap-1.5 bg-[#C43E1C] text-white rounded-xl py-3 text-xs font-bold">
+                                            <Icons.Presentation size={14}/> PPT 다운로드
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                )}
+
+                {/* ── 히스토리 모달 ── */}
+                {showHistory && (
+                    <div className="absolute inset-0 z-50 bg-[#1C1C1E] flex flex-col animate-slide-up">
+                        <div className="bg-[#2C2C2E] border-b border-gray-700 p-4 safe-area-top flex justify-between items-center">
+                            <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                                <span className="bg-[#FF9500] p-1 rounded-md"><Icons.History size={16} className="text-white"/></span>
+                                진단 히스토리
+                                <span className="text-xs bg-gray-700 text-gray-300 px-2 py-0.5 rounded-full">{history.length}건</span>
+                            </h2>
+                            <div className="flex gap-2">
+                                {history.length > 0 && (
+                                    <button onClick={() => {
+                                        if (confirm('전체 히스토리를 삭제하시겠습니까?')) {
+                                            setHistory([]);
+                                            localStorage.removeItem('heavyguard_history');
+                                            idbClear();
+                                        }
+                                    }} className="bg-red-900/40 p-2 rounded-full text-red-400">
+                                        <Icons.Trash2 size={18}/>
+                                    </button>
+                                )}
+                                <button onClick={() => setShowHistory(false)} className="bg-[#3A3A3C] p-2 rounded-full text-gray-300">
+                                    <Icons.X size={20}/>
+                                </button>
+                            </div>
+                        </div>
+                        <div className="flex-1 overflow-y-auto hide-scrollbar">
+                            {history.length === 0 ? (
+                                <div className="flex flex-col items-center justify-center h-full gap-3 text-gray-500">
+                                    <Icons.History size={48} className="opacity-30"/>
+                                    <p className="text-sm">아직 진단 기록이 없습니다</p>
+                                </div>
+                            ) : (
+                                <div className="p-4 space-y-3">
+                                    {history.map((item) => {
+                                        const rc = { '매우위험':'bg-red-500','위험':'bg-orange-500','주의':'bg-yellow-500','양호':'bg-green-500' }[item.report?.riskLevel] || 'bg-gray-500';
+                                        return (
+                                            <button key={item.id} onClick={() => {
+                                                setReportData(item.report);
+                                                setCapturedImage(item.image);
+                                                setShowHistory(false);
+                                                setShowReport(true);
+                                            }} className="w-full bg-[#2C2C2E] rounded-2xl overflow-hidden border border-gray-700 active:opacity-70 text-left">
+                                                <div className={`h-1.5 ${rc}`}/>
+                                                <div className="flex gap-3 p-3">
+                                                    {item.image && <img src={item.image} className="w-16 h-16 rounded-xl object-cover flex-shrink-0 bg-black"/>}
+                                                    <div className="flex-1 min-w-0">
+                                                        <div className="flex items-center gap-2 mb-1">
+                                                            <span className={`text-xs font-bold px-2 py-0.5 rounded-full text-white ${rc}`}>{item.report?.riskLevel||'-'}</span>
+                                                            <span className="text-xs text-gray-400 truncate">{item.siteName}</span>
+                                                        </div>
+                                                        <p className="text-xs text-gray-300 line-clamp-2 leading-relaxed">{item.report?.summary?.substring(0,80)}...</p>
+                                                        <div className="flex items-center gap-3 mt-1.5">
+                                                            <span className="text-[10px] text-gray-500">{item.date}</span>
+                                                            {item.gps && <span className="text-[10px] text-blue-400 flex items-center gap-0.5"><Icons.MapPin size={10}/>{item.gps.lat}</span>}
+                                                            <span className="text-[10px] text-orange-400">{item.report?.hazards?.length||0}건</span>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                )}
+
                 {/* ── API 키 모달 ── */}
                 {isKeyModalOpen && (
                     <div className="absolute inset-0 z-[60] bg-black/80 backdrop-blur-sm flex items-center justify-center p-6">
@@ -1011,7 +2284,12 @@ JSON 스키마:
                                 <Icons.Key className="text-white" size={24}/>
                             </div>
                             <h3 className="text-xl font-bold text-white mb-2">API 키 설정</h3>
-                            <p className="text-sm text-gray-400 mb-4">Google Gemini API 키를 입력하세요.</p>
+                            <p className="text-sm text-gray-400 mb-3">
+                                {localStorage.getItem('gemini_api_key')
+                                    ? '개인 API 키를 사용 중입니다.'
+                                    : '사내 공용 키로 동작 중입니다.'}
+                            </p>
+                            <p className="text-[11px] text-gray-500 mb-4">개인 키를 쓰려면 아래에 입력하세요.</p>
                             <div className="mb-5 bg-white/5 rounded-xl p-3 border border-white/5">
                                 <p className="text-[11px] text-gray-300 mb-2">키가 없으신가요?</p>
                                 <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer"
@@ -1021,13 +2299,22 @@ JSON 스키마:
                                 </a>
                                 <p className="text-[10px] text-gray-500 mt-1">구글 로그인 → Create API key 클릭</p>
                             </div>
-                            <input type="password" id="apiKeyInput" defaultValue={apiKey}
+                            <input type="password" ref={apiKeyInputRef}
+                                defaultValue={localStorage.getItem('gemini_api_key') || ''}
                                 placeholder="AIza..."
                                 className="w-full bg-white/10 border border-white/10 rounded-xl p-3 text-white mb-4 outline-none focus:border-[#007AFF] text-center placeholder:text-gray-600 text-sm"/>
                             <div className="flex gap-3">
                                 <button onClick={() => setIsKeyModalOpen(false)} className="flex-1 py-3 text-gray-400 text-sm">취소</button>
                                 <button onClick={() => {
-                                    const key = document.getElementById('apiKeyInput').value;
+                                    const key = (apiKeyInputRef.current?.value || '').trim();
+                                    if (!key) {
+                                        // 빈 값 저장 = 공용 키로 복귀
+                                        localStorage.removeItem('gemini_active_model');
+                                        localStorage.removeItem('gemini_api_key');
+                                        setApiKey(DEFAULT_API_KEY); setIsKeyModalOpen(false);
+                                        return;
+                                    }
+                                    localStorage.removeItem('gemini_active_model');
                                     localStorage.setItem('gemini_api_key', key);
                                     setApiKey(key); setIsKeyModalOpen(false);
                                 }} className="flex-1 py-3 bg-[#007AFF] text-white rounded-xl font-bold text-sm">저장</button>
