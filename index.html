@@ -195,8 +195,13 @@
     })();
     const getActiveModel = () => ACTIVE_MODEL;
 
-    // thinkingLevel 을 이 키/엔드포인트가 받아주는지 여부 (한 번 거부되면 세션 내내 생략)
-    let THINKING_SUPPORTED = true;
+    // thinking 옵션의 전달 형식.
+    //  올바른 규격은 generationConfig.thinkingConfig.thinkingLevel 이다.
+    //  (직전 버전은 generationConfig 바로 아래에 thinkingLevel 을 넣어 400 을 받았고,
+    //   그 결과 옵션이 통째로 꺼져 모델이 기본 사고량을 다 쓰는 바람에
+    //   출력 토큰이 모자라 JSON 이 잘렸다 — 사진 유실의 실제 원인)
+    //  'nested' → 'flat' → 'off' 순으로 한 번씩만 강등하고 그 결과를 세션 내내 재사용한다.
+    let THINKING_MODE = 'nested';
 
     // ─── 기본 API 키 (사내 배포용) ───
     // 개인 키를 쓰려면 앱 우측 상단 ⚙︎ 에서 입력하면 이 값을 덮어씁니다.
@@ -388,8 +393,12 @@
         //    (호출마다 실패 왕복을 반복하면 최적화가 오히려 지연이 된다)
         const buildBody = (model) => {
             const gc = {};
-            if (jsonMode) { gc.responseMimeType = "application/json"; gc.maxOutputTokens = 3072; }
-            if (THINKING_SUPPORTED && MIN_THINKING[model]) gc.thinkingLevel = MIN_THINKING[model];
+            // 사고 토큰도 이 한도에 포함되므로, 잘림이 유실로 이어지지 않게 넉넉히 잡는다.
+            // (실제 보고서 JSON 은 800~1200 토큰이라 지연에는 영향이 없다)
+            if (jsonMode) { gc.responseMimeType = "application/json"; gc.maxOutputTokens = 8192; }
+            const lv = MIN_THINKING[model];
+            if (lv && THINKING_MODE === 'nested') gc.thinkingConfig = { thinkingLevel: lv };
+            else if (lv && THINKING_MODE === 'flat') gc.thinkingLevel = lv;
             return {
                 contents: [{ role: 'user', parts }],
                 ...(Object.keys(gc).length ? { generationConfig: gc } : {})
@@ -421,11 +430,11 @@
                     const errMsg = data.error?.message || `HTTP ${response.status}`;
 
                     if (!response.ok) {
-                        // thinkingLevel 미지원 → 옵션 없이 재시도하고, 이후 호출에서는 아예 보내지 않는다
-                        if (response.status === 400 && THINKING_SUPPORTED &&
+                        // thinking 옵션 거부 → 한 단계만 강등하고 같은 모델로 재시도
+                        if (response.status === 400 && THINKING_MODE !== 'off' &&
                             /thinking|unknown name|invalid json payload|unrecognized|not supported/i.test(errMsg)) {
-                            THINKING_SUPPORTED = false;
-                            console.info('[HeavyGuard] thinkingLevel 미지원 → 이후 생략');
+                            THINKING_MODE = THINKING_MODE === 'nested' ? 'flat' : 'off';
+                            console.info('[HeavyGuard] thinking 옵션 강등 →', THINKING_MODE, '|', errMsg);
                             continue;
                         }
                         // 모델 자체가 없거나 이 키로 못 쓰는 경우 → 다음 모델로
@@ -446,9 +455,19 @@
                         throw new Error(errMsg);
                     }
 
-                    const text = data.candidates?.[0]?.content?.parts
-                        ?.map(p => p.text || '').join('') || '';
-                    if (!text.trim()) { lastErr = '빈 응답'; modelUnavailable = true; break; }
+                    const cand = data.candidates?.[0];
+                    const text = cand?.content?.parts?.map(p => p.text || '').join('') || '';
+                    const finish = cand?.finishReason || '';
+                    // 사고 토큰이 상한을 다 먹어 본문이 안 나온 경우 — 이 모델로는 더 시도해도 같다
+                    if (finish === 'MAX_TOKENS' && !text.trim()) {
+                        lastErr = '출력 토큰 한도 초과(사고 과다)';
+                        modelUnavailable = true; break;
+                    }
+                    if (!text.trim()) {
+                        lastErr = finish ? ('빈 응답 (' + finish + ')') : '빈 응답';
+                        modelUnavailable = true; break;
+                    }
+                    if (finish === 'MAX_TOKENS') console.warn('[HeavyGuard] 응답이 잘렸습니다 (MAX_TOKENS)');
 
                     // 성공한 모델을 기억
                     if (ACTIVE_MODEL !== model) {
@@ -456,7 +475,7 @@
                         try { localStorage.setItem('gemini_active_model_v2', model); } catch(e) {}
                         console.info('[HeavyGuard] 사용 모델 전환:', model);
                     }
-                    return { success: true, text, model };
+                    return { success: true, text, model, truncated: finish === 'MAX_TOKENS' };
 
                 } catch (err) {
                     retries++;
@@ -1170,6 +1189,28 @@ ${SITE_RULES}`;
         };
         loopRef.current = predictLoop;
 
+        // 잘린 JSON 을 최대한 살린다.
+        //  응답이 MAX_TOKENS 로 끊기면 문자열 중간에서 잘리는데, 그 앞까지의 위험요소는 멀쩡하다.
+        //  통째로 버리는 대신 열린 문자열·괄호를 닫아 파싱 가능한 형태로 되돌린다.
+        const salvageJson = (raw) => {
+            let t = raw.trim();
+            const stack = [];
+            let inStr = false, esc = false;
+            for (let i = 0; i < t.length; i++) {
+                const c = t[i];
+                if (esc) { esc = false; continue; }
+                if (c === String.fromCharCode(92)) { esc = true; continue; }
+                if (inStr) { if (c === '"') inStr = false; continue; }
+                if (c === '"') inStr = true;
+                else if (c === '{' || c === '[') stack.push(c);
+                else if (c === '}' || c === ']') stack.pop();
+            }
+            if (inStr) t += '"';                       // 열린 문자열 닫기
+            t = t.replace(/,\s*$/, '');                // 끝에 남은 쉼표 제거
+            while (stack.length) t += (stack.pop() === '{' ? '}' : ']');
+            return t;
+        };
+
         // ─── 공통 분석 실행 함수 ───
 
         // 썸네일 생성 (128px, 저화질) - localStorage 용량 절감
@@ -1234,19 +1275,36 @@ ${SITE_RULES}`;
             if (!skipFinalize) setLoadingMsg('AI가 이미지를 분석하고 있습니다...');
             try {
                 const result = await callGeminiAPI(ANALYSIS_PROMPT, base64Img, apiKey, true);
-                if (result.success) {
-                    let parsed;
-                    try {
+                {
+                    let parsed, analysisFailed = false;
+                    if (result.success) {
                         const cleaned = result.text.replace(/```json\n?|\n?```/g, '').trim();
-                        parsed = JSON.parse(cleaned);
-                    } catch (err) {
-                        // 파싱에 실패해도 원문을 요약에 담아 기록까지는 남긴다 (재촬영 불가한 현장 사진 보호)
-                        console.error("JSON 파싱 실패:", err);
-                        parsed = { riskLevel: '주의', summary: result.text, hazards: [],
-                                   immediateActions: [], recommendations: [], parseFailed: true };
+                        try {
+                            parsed = JSON.parse(cleaned);
+                        } catch (err) {
+                            // 잘린 응답이면 살려서 다시 시도한다
+                            try {
+                                parsed = JSON.parse(salvageJson(cleaned));
+                                parsed.truncated = true;
+                                console.warn('[HeavyGuard] 잘린 JSON 을 복구했습니다');
+                            } catch (err2) {
+                                console.error("JSON 파싱 실패:", err);
+                                parsed = { riskLevel: '주의', summary: cleaned || '응답을 해석하지 못했습니다.',
+                                           hazards: [], immediateActions: [], recommendations: [], parseFailed: true };
+                            }
+                        }
+                    } else {
+                        // 분석에 실패해도 사진은 남긴다.
+                        //  현장 사진은 재촬영이 불가능하므로, AI 결과보다 사진 보존이 우선이다.
+                        analysisFailed = true;
+                        parsed = { riskLevel: '주의', summary: '분석 실패: ' + (result.message || '알 수 없는 오류')
+                                            + ' (사진은 저장되었습니다. 기록에서 다시 진단할 수 있습니다.)',
+                                   hazards: [], immediateActions: [], recommendations: [], analysisFailed: true };
+                        if (!skipFinalize) alert(`오류: ${result.message}`);   // 배치 중에는 끝에 한 번만 알린다
+                        if (result.errorType === 'AUTH') setIsKeyModalOpen(true);
                     }
                     setReportData(parsed);
-                    if (!silent) setShowReport(true);   // 일지에서 추가 시엔 보고서 팝업 생략
+                    if (!silent && !analysisFailed) setShowReport(true);   // 일지에서 추가 시엔 보고서 팝업 생략
                     const now = shotAt instanceof Date && !isNaN(shotAt) ? shotAt : new Date();
                     // 연속 촬영 시 같은 밀리초로 id 가 겹치지 않도록 단조 증가시킨다
                     const id = lastEntryId.current = Math.max(Date.now(), lastEntryId.current + 1);
@@ -1260,10 +1318,7 @@ ${SITE_RULES}`;
                         siteName: siteInfo.name || '미입력'
                     };
                     const saveState = await saveHistory(entry);
-                    savedEntry = { id: entry.id, timeSlot: entry.timeSlot, saveState };
-                } else {
-                    alert(`오류: ${result.message}`);
-                    if (result.errorType === 'AUTH') setIsKeyModalOpen(true);
+                    savedEntry = { id: entry.id, timeSlot: entry.timeSlot, saveState, analysisFailed };
                 }
             } catch (e) { console.error(e); alert("분석 중 오류가 발생했습니다."); }
             finally { monitoringOnRef.current = monitorWasOn; }
@@ -1328,8 +1383,9 @@ ${SITE_RULES}`;
                             const shot = await getShotTime(files[i]);
                             const b64 = await resizeImageToBase64(files[i]);
                             const saved = await runAnalysis(b64, true, false, shot);
-                            if (!saved) fails.push(`${i+1}번 (분석 실패)`);
+                            if (!saved) fails.push(`${i+1}번 (사진 저장 실패)`);
                             else if (saved.saveState !== 'ok') fails.push(`${i+1}번 (사진 저장 실패)`);
+                            else if (saved.analysisFailed) fails.push(`${i+1}번 (분석만 실패 — 사진은 저장됨)`);
                         } catch (err) {
                             console.error(`${i+1}번째 이미지 오류:`, err);
                             fails.push(`${i+1}번 (${err.message})`);
@@ -1337,9 +1393,9 @@ ${SITE_RULES}`;
                     }
                     // 조용히 사라지지 않도록 결과를 반드시 알린다
                     if (fails.length) {
-                        alert(`${files.length}장 중 ${fails.length}장을 저장하지 못했습니다.\n\n`
+                        alert(`${files.length}장 중 ${fails.length}장에 문제가 있었습니다.\n\n`
                               + fails.join('\n')
-                              + `\n\n원본 사진은 갤러리에 그대로 있으니 다시 시도해 주세요.`);
+                              + `\n\n'분석만 실패'는 사진이 기록에 남아 있으니 다시 진단하면 됩니다.`);
                     }
                 } finally {
                     setBatchProgress(null);
@@ -1486,7 +1542,8 @@ ${SITE_RULES}`;
                         if (saved) {
                             added.push(saved);
                             if (saved.saveState !== 'ok') fails.push(`${i + 1}번 (사진 저장 실패)`);
-                        } else fails.push(`${i + 1}번 (분석 실패)`);
+                            else if (saved.analysisFailed) fails.push(`${i + 1}번 (분석만 실패 — 사진은 저장됨)`);
+                        } else fails.push(`${i + 1}번 (사진 저장 실패)`);
                     } catch (err) {
                         console.error(`${i + 1}번째 사진 오류:`, err);
                         fails.push(`${i + 1}번 (${err.message})`);
@@ -1497,9 +1554,9 @@ ${SITE_RULES}`;
                 setIsAnalyzing(false);
             }
             if (fails.length) {
-                alert(`${files.length}장 중 ${fails.length}장을 저장하지 못했습니다.\n\n`
+                alert(`${files.length}장 중 ${fails.length}장에 문제가 있었습니다.\n\n`
                       + fails.join('\n')
-                      + `\n\n원본 사진은 갤러리에 그대로 있으니 다시 시도해 주세요.`);
+                      + `\n\n'분석만 실패'는 사진이 기록에 남아 있으니 다시 진단하면 됩니다.`);
             }
             // 새로 추가된 기록을 자동 선택.
             //  이전 구현은 setTimeout 안에서 todayEntries() 를 불렀는데, 그 함수가 참조하는
