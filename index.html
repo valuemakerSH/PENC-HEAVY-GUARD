@@ -357,11 +357,41 @@
     };
 
     // ─── Gemini API 호출 (수정 2: 모델명, retry 로직 유지) ───
-    async function callGeminiAPI(prompt, base64Image, apiKey, jsonMode = false) {
+    // ─── 호출 속도 조절 ───
+    //  무료 티어는 모델별로 분당 요청 수가 제한된다(gemini-3.7-flash 기준 5회).
+    //  한도를 넘기면 429 가 오고, 그 사진은 분석되지 않는다.
+    //  그래서 '거부당한 뒤 수습'하지 않고, 넘기 전에 미리 간격을 벌린다.
+    const RATE_LIMIT = 5, RATE_WINDOW = 60000;
+    const recentCalls = [];                    // 최근 60초 내 요청 시각
+    const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+    const rateGate = async (onStatus) => {
+        for (;;) {
+            const now = Date.now();
+            while (recentCalls.length && now - recentCalls[0] > RATE_WINDOW) recentCalls.shift();
+            if (recentCalls.length < RATE_LIMIT) { recentCalls.push(now); return; }
+            const wait = RATE_WINDOW - (now - recentCalls[0]) + 500;
+            if (onStatus) onStatus(`무료 사용량 한도 대기 중 (약 ${Math.ceil(wait / 1000)}초)...`);
+            console.info('[HeavyGuard] 분당 한도 대기', Math.ceil(wait / 1000), '초');
+            await sleep(Math.min(wait, 3000));   // 3초씩 끊어 대기해 남은 시간을 갱신 표시
+        }
+    };
+
+    // 429 응답의 'Please retry in 29.1s' 를 읽어 실제 대기시간을 얻는다
+    const parseRetryDelay = (msg) => {
+        const m = /retry in ([\d.]+)\s*s/i.exec(msg || '');
+        return m ? Math.min(Math.ceil(parseFloat(m[1]) + 1) * 1000, 65000) : 0;
+    };
+
+    async function callGeminiAPI(prompt, base64Image, apiKey, jsonMode = false, onStatus = null) {
         if (!apiKey) return { success: false, errorType: 'AUTH', message: "API 키가 필요합니다." };
 
+        // base64Image 는 문자열 1장 또는 배열(여러 장)을 받는다.
+        //  무료 티어 한도는 '분당 요청 수'라서, 여러 장을 한 요청에 담으면
+        //  같은 사진 수를 훨씬 적은 호출로 처리할 수 있다.
         const parts = [{ text: prompt }];
-        if (base64Image) parts.push({ inlineData: { mimeType: "image/jpeg", data: base64Image.split(',')[1] } });
+        const imgs = base64Image ? (Array.isArray(base64Image) ? base64Image : [base64Image]) : [];
+        imgs.forEach(b => { if (b) parts.push({ inlineData: { mimeType: "image/jpeg", data: b.split(',')[1] } }); });
 
         // 요청 본문은 v6 와 동일하게 최소 구성으로 유지한다.
         //  thinkingLevel / maxOutputTokens 를 얹어 '속도 최적화'를 시도했다가,
@@ -382,7 +412,10 @@
             let retries = 0;
             let modelUnavailable = false;
 
-            while (retries <= 2) {
+            while (retries <= 3) {
+                // 한도를 넘기기 전에 스스로 간격을 벌린다
+                await rateGate(onStatus);
+                if (onStatus) onStatus('AI가 이미지를 분석하고 있습니다...');
                 // 실패 원인을 콘솔만 보고도 특정할 수 있게 시도 내역을 남긴다
                 console.info('[HeavyGuard] 요청 →', model, '(시도', retries + 1, ')');
                 // 신호는 잡히는데 데이터가 흐르지 않는 현장 상황에서 fetch 가 영원히 매달리는 것을 막는다
@@ -412,8 +445,34 @@
                         if (response.status === 400 && /api key|permission|credential/i.test(errMsg)) {
                             return { success: false, errorType: 'AUTH', message: `API 키 오류: ${errMsg}` };
                         }
-                        // 결제 필요 / 할당량 → 다음 모델 시도
-                        if (response.status === 429 || /quota|billing|exceeded/i.test(errMsg)) {
+                        // 할당량 초과 → 서버가 알려준 시간만큼 기다렸다가 같은 모델로 재시도한다.
+                        //  곧바로 다른 모델로 넘어가면 그 모델의 할당량까지 함께 태우게 된다.
+                        if (response.status === 429) {
+                            const wait = parseRetryDelay(errMsg);
+                            if (wait && retries < 3) {
+                                retries++;
+                                console.info('[HeavyGuard] 할당량 초과 →', Math.ceil(wait / 1000), '초 대기 후 재시도');
+                                for (let left = wait; left > 0; left -= 3000) {
+                                    if (onStatus) onStatus(`사용량 한도로 대기 중 (약 ${Math.ceil(left / 1000)}초)...`);
+                                    await sleep(Math.min(left, 3000));
+                                }
+                                continue;
+                            }
+                            modelUnavailable = true; lastErr = errMsg; break;
+                        }
+                        // 결제 필요 등 → 다음 모델 시도
+                        if (/billing|exceeded your current quota/i.test(errMsg)) {
+                            modelUnavailable = true; lastErr = errMsg; break;
+                        }
+                        // 일시적 과부하 → 넉넉히 쉬었다가 같은 모델로 재시도
+                        if (response.status === 503 || response.status === 500) {
+                            if (retries < 3) {
+                                retries++;
+                                const wait = 2000 * retries;
+                                if (onStatus) onStatus(`서버 혼잡 — ${Math.ceil(wait / 1000)}초 후 재시도...`);
+                                await sleep(wait);
+                                continue;
+                            }
                             modelUnavailable = true; lastErr = errMsg; break;
                         }
                         throw new Error(errMsg);
@@ -445,7 +504,7 @@
                 } catch (err) {
                     retries++;
                     lastErr = err.name === 'AbortError' ? '응답 시간 초과(60초)' : err.message;
-                    if (retries > 2) { modelUnavailable = true; break; }
+                    if (retries > 3) { modelUnavailable = true; break; }
                     await new Promise(r => setTimeout(r, 800 * retries));
                 } finally {
                     clearTimeout(killer);
@@ -796,6 +855,30 @@
 규칙:
 - 사진에 실제로 보이는 것만. 추측·일반론 금지. 없으면 hazards 빈 배열, riskLevel "양호".
 - hazards 최대 4개, 위험한 순. 모든 문장 간결하게, 수식어 금지.
+- 아래 [사내 강화기준]에 걸리는 위반을 최우선으로 넣고, 그 항목은 koshaGuide 에 표기한다.
+- 점검 시야: 추락방호(개구부·난간·방호망), 안전대 체결, 중장비 접근통제·아웃리거, 보호구,
+  비계·동바리, 전기·분전함, 화재·소화기, 통로 확보.
+
+[사내 강화기준] (법정 기준보다 강하거나 법에 없는 우리 회사 기준)
+${SITE_RULES}`;
+
+    // ─── 여러 장 동시 분석 프롬프트 ───
+    //  사진 순서를 idx 로 고정해, 응답을 각 사진에 정확히 되돌려 붙인다.
+    const batchAnalysisPrompt = (n) => `건설현장 안전점검 전문가. 첨부된 사진 ${n}장을 각각 분석해 JSON만 출력한다.
+사진은 첨부된 순서대로 idx 0부터 ${n - 1}까지다.
+
+{"results":[{"idx":0,
+"riskLevel":"매우위험|위험|주의|양호","summary":"1~2문장",
+"hazards":[{"title":"짧게","category":"추락|협착|감전|화재|전도|충돌|폭발|질식|기타",
+"severity":"high|medium|low","law":"산업안전보건기준에 관한 규칙 제○조 등, 불확실하면 빈 문자열",
+"koshaGuide":"아래 사내 강화기준 위반이면 (사내 H/P 번호 항목명), 아니면 빈 문자열",
+"description":"1문장","action":"1문장"}],
+"immediateActions":["1문장, 최대 3개"],"recommendations":["1문장, 최대 2개"]}]}
+
+규칙:
+- results 는 반드시 ${n}개, idx 0~${n - 1} 을 빠짐없이 순서대로 포함한다.
+- 각 사진에 실제로 보이는 것만. 추측·일반론 금지. 없으면 hazards 빈 배열, riskLevel "양호".
+- 사진마다 hazards 최대 3개, 위험한 순. 모든 문장 간결하게, 수식어 금지.
 - 아래 [사내 강화기준]에 걸리는 위반을 최우선으로 넣고, 그 항목은 koshaGuide 에 표기한다.
 - 점검 시야: 추락방호(개구부·난간·방호망), 안전대 체결, 중장비 접근통제·아웃리거, 보호구,
   비계·동바리, 전기·분전함, 화재·소화기, 통로 확보.
@@ -1154,6 +1237,18 @@ ${SITE_RULES}`;
         };
         loopRef.current = predictLoop;
 
+        // 이미 저장된 기록의 일부만 갱신한다 (사진은 그대로 두고 분석 결과만 채워 넣는 용도)
+        const updateHistoryEntry = (id, patch) => {
+            setHistory(prev => {
+                const next = prev.map(h => (h.id === id ? { ...h, ...patch } : h));
+                try {
+                    localStorage.setItem('heavyguard_history',
+                        JSON.stringify(next.map(h => ({ ...h, image: h.imgInIdb ? '' : h.image }))));
+                } catch (e) { console.warn('기록 갱신 저장 실패', e); }
+                return next;
+            });
+        };
+
         // 잘린 JSON 을 최대한 살린다.
         //  응답이 MAX_TOKENS 로 끊기면 문자열 중간에서 잘리는데, 그 앞까지의 위험요소는 멀쩡하다.
         //  통째로 버리는 대신 열린 문자열·괄호를 닫아 파싱 가능한 형태로 되돌린다.
@@ -1230,72 +1325,233 @@ ${SITE_RULES}`;
         };
 
         // skipFinalize=true 시 setIsAnalyzing(false) 를 호출하지 않음 (배치 모드에서 사용)
+        // 사진 1장을 기록에 먼저 저장한다 (분석 결과는 나중에 채워 넣는다)
+        const savePhotoEntry = async (base64Img, shotAt) => {
+            const now = shotAt instanceof Date && !isNaN(shotAt) ? shotAt : new Date();
+            // 연속 촬영 시 같은 밀리초로 id 가 겹치지 않도록 단조 증가시킨다
+            const id = lastEntryId.current = Math.max(Date.now(), lastEntryId.current + 1);
+            const pending = { riskLevel: '주의', summary: '분석 대기 중입니다. 기록에서 다시 진단할 수 있습니다.',
+                              hazards: [], immediateActions: [], recommendations: [], pending: true };
+            const entry = {
+                id,
+                date: now.toLocaleString('ko-KR'),
+                dayKey: `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`,
+                timeSlot: now.getHours() < 12 ? '오전' : '오후',
+                timeLabel: `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`,
+                image: base64Img, report: pending, gps: gpsCoords,
+                siteName: siteInfo.name || '미입력'
+            };
+            const saveState = await saveHistory(entry);
+            console.info('[HeavyGuard] 사진 저장', saveState === 'ok' ? '성공' : '실패(' + saveState + ')', 'id=' + id);
+            return { id, timeSlot: entry.timeSlot, saveState, pending };
+        };
+
+        // 응답 텍스트를 보고서 객체로 변환 (단건·묶음 공용)
+        const parseReport = (raw) => {
+            const cleaned = (raw || '').replace(/```json\n?|\n?```/g, '').trim();
+            try { return JSON.parse(cleaned); }
+            catch (err) {
+                try {
+                    const r = JSON.parse(salvageJson(cleaned));
+                    r.truncated = true;
+                    console.warn('[HeavyGuard] 잘린 JSON 을 복구했습니다');
+                    return r;
+                } catch (err2) {
+                    console.error('JSON 파싱 실패:', err);
+                    return null;
+                }
+            }
+        };
+
+        const failReport = (msg) => ({
+            riskLevel: '주의',
+            summary: '분석 실패: ' + msg + ' (사진은 저장되어 있습니다. 기록에서 다시 진단하세요.)',
+            hazards: [], immediateActions: [], recommendations: [], analysisFailed: true
+        });
+
+        // ─── 여러 장 묶음 분석 ───
+        //  무료 티어 한도는 '분당 요청 수'이므로, 사진을 BATCH_CHUNK 장씩 묶어 호출 수를 줄인다.
+        //  15장이면 15회가 아니라 3회로 끝나 한도 대기 없이 처리된다.
+        //  묶음을 더 크게 잡으면 호출은 줄지만 응답이 길어져 잘릴 위험이 커지고,
+        //  한 번의 실패로 잃는 사진 수도 늘어난다. 5장이 그 균형점이다.
+        const BATCH_CHUNK = 5;
+
+        const runBatchAnalysis = async (files) => {
+            const results = [];
+
+            // ── 1단계: 전부 먼저 저장한다 (분석보다 사진 확보가 우선) ──
+            const saved = [];
+            for (let i = 0; i < files.length; i++) {
+                setBatchProgress({ current: i + 1, total: files.length });
+                setLoadingMsg(`사진 저장 중 (${i + 1}/${files.length})...`);
+                try {
+                    const shot = await getShotTime(files[i]);
+                    const b64 = await resizeImageToBase64(files[i]);
+                    const rec = await savePhotoEntry(b64, shot);
+                    saved.push({ ...rec, b64, no: i + 1 });
+                } catch (err) {
+                    console.error(`${i + 1}번째 사진 오류:`, err);
+                    saved.push({ id: null, saveState: 'none', no: i + 1, error: err.message });
+                }
+            }
+            saved.forEach(r => results.push({ id: r.id, timeSlot: r.timeSlot, no: r.no,
+                                              saveState: r.saveState,
+                                              analysisFailed: r.saveState !== 'ok' }));
+
+            const targets = saved.filter(r => r.saveState === 'ok');
+            if (!targets.length || !apiKey) {
+                if (!apiKey) setIsKeyModalOpen(true);
+                return results;
+            }
+
+            // ── 2단계: BATCH_CHUNK 장씩 묶어 분석 ──
+            const chunks = [];
+            for (let i = 0; i < targets.length; i += BATCH_CHUNK) chunks.push(targets.slice(i, i + BATCH_CHUNK));
+            console.info('[HeavyGuard] 묶음 분석', targets.length, '장 →', chunks.length, '회 호출');
+
+            const monitorWasOn = monitoringOnRef.current;
+            monitoringOnRef.current = false;
+            try {
+                for (let c = 0; c < chunks.length; c++) {
+                    const chunk = chunks[c];
+                    setBatchProgress({ current: c + 1, total: chunks.length });
+                    setLoadingMsg(`AI 분석 중 (${c + 1}/${chunks.length}묶음, 사진 ${chunk.length}장)...`);
+                    let reports = null, errMsg = '';
+                    try {
+                        const res = await callGeminiAPI(batchAnalysisPrompt(chunk.length),
+                                                        chunk.map(t => t.b64), apiKey, true,
+                                                        (msg) => setLoadingMsg(msg));
+                        if (res.success) {
+                            const parsed = parseReport(res.text);
+                            const arr = parsed && Array.isArray(parsed.results) ? parsed.results : null;
+                            if (arr) reports = arr;
+                            else errMsg = '응답 형식이 올바르지 않습니다';
+                        } else {
+                            errMsg = res.message || '알 수 없는 오류';
+                            if (res.errorType === 'AUTH') setIsKeyModalOpen(true);
+                        }
+                    } catch (e) {
+                        console.error(e); errMsg = e.message || '분석 중 오류';
+                    }
+
+                    chunk.forEach((t, k) => {
+                        // idx 로 되돌려 붙이고, idx 가 없으면 순서대로 대응시킨다
+                        const r = reports
+                            ? (reports.find(x => Number(x.idx) === k) || reports[k] || null)
+                            : null;
+                        const rec = results.find(x => x.id === t.id);
+                        if (r) {
+                            updateHistoryEntry(t.id, { report: r });
+                            if (rec) rec.analysisFailed = false;
+                        } else {
+                            updateHistoryEntry(t.id, { report: failReport(errMsg || '결과 누락') });
+                            if (rec) rec.analysisFailed = true;
+                        }
+                    });
+                }
+            } finally {
+                monitoringOnRef.current = monitorWasOn;
+            }
+            return results;
+        };
+
+        // 순서가 중요하다: 사진을 '먼저' 저장하고 그 다음에 분석한다.
+        //  분석 뒤에 저장하면, 분석이 실패하거나 할당량 대기에 걸렸을 때
+        //  사진 자체가 남지 않아 '저장이 문제인지 분석이 문제인지' 구분할 수 없다.
+        //  현장 사진은 재촬영이 불가능하므로 무슨 일이 있어도 먼저 확보한다.
         const runAnalysis = async (base64Img, skipFinalize = false, silent = false, shotAt = null) => {
             console.info('[HeavyGuard] 분석 시작 (이미지', Math.round(base64Img.length / 1024), 'KB)');
-            if (!apiKey) {
-                console.warn('[HeavyGuard] API 키 없음 → 중단');
-                setIsKeyModalOpen(true); if (!skipFinalize) setIsAnalyzing(false); return null;
-            }
             setCapturedImage(base64Img);
-            let savedEntry = null;
+
+            const now = shotAt instanceof Date && !isNaN(shotAt) ? shotAt : new Date();
+            // 연속 촬영 시 같은 밀리초로 id 가 겹치지 않도록 단조 증가시킨다
+            const id = lastEntryId.current = Math.max(Date.now(), lastEntryId.current + 1);
+            const pending = { riskLevel: '주의', summary: '분석 대기 중입니다. 기록에서 다시 진단할 수 있습니다.',
+                              hazards: [], immediateActions: [], recommendations: [], pending: true };
+            const entry = {
+                id,
+                date: now.toLocaleString('ko-KR'),
+                dayKey: `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`,
+                timeSlot: now.getHours() < 12 ? '오전' : '오후',
+                timeLabel: `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`,
+                image: base64Img, report: pending, gps: gpsCoords,
+                siteName: siteInfo.name || '미입력'
+            };
+
+            // ── 1단계: 저장 ──
+            if (!skipFinalize) setLoadingMsg('사진을 저장하는 중...');
+            const saveState = await saveHistory(entry);
+            console.info('[HeavyGuard] 사진 저장', saveState === 'ok' ? '성공' : '실패(' + saveState + ')', 'id=' + id);
+            if (saveState !== 'ok') {
+                // 저장 자체가 실패한 경우 — 분석해봐야 남길 곳이 없다
+                if (!skipFinalize) {
+                    setIsAnalyzing(false);
+                    alert('사진을 저장하지 못했습니다.\n브라우저의 저장공간이 막혀 있거나 가득 찼을 수 있습니다.\n(시크릿 모드에서는 저장되지 않습니다)');
+                }
+                return { id, timeSlot: entry.timeSlot, saveState, analysisFailed: false };
+            }
+
+            // ── 2단계: 분석 ──
+            if (!apiKey) {
+                console.warn('[HeavyGuard] API 키 없음 → 분석 생략 (사진은 저장됨)');
+                setIsKeyModalOpen(true);
+                if (!skipFinalize) setIsAnalyzing(false);
+                return { id, timeSlot: entry.timeSlot, saveState, analysisFailed: true };
+            }
+
+            let analysisFailed = false;
             // 분석 동안 TF.js 실시간 감지를 일시 중지 (모바일 CPU/GPU 경합 제거)
             const monitorWasOn = monitoringOnRef.current;
             monitoringOnRef.current = false;
             if (!skipFinalize) setLoadingMsg('AI가 이미지를 분석하고 있습니다...');
             try {
-                const result = await callGeminiAPI(ANALYSIS_PROMPT, base64Img, apiKey, true);
-                {
-                    let parsed, analysisFailed = false;
-                    if (result.success) {
-                        const cleaned = result.text.replace(/```json\n?|\n?```/g, '').trim();
+                // 대기 중임을 화면에 알려, 멈춘 것처럼 보이지 않게 한다
+                const result = await callGeminiAPI(ANALYSIS_PROMPT, base64Img, apiKey, true,
+                                                   (msg) => setLoadingMsg(msg));
+                let parsed;
+                if (result.success) {
+                    const cleaned = result.text.replace(/```json\n?|\n?```/g, '').trim();
+                    try {
+                        parsed = JSON.parse(cleaned);
+                    } catch (err) {
+                        // 잘린 응답이면 살려서 다시 시도한다
                         try {
-                            parsed = JSON.parse(cleaned);
-                        } catch (err) {
-                            // 잘린 응답이면 살려서 다시 시도한다
-                            try {
-                                parsed = JSON.parse(salvageJson(cleaned));
-                                parsed.truncated = true;
-                                console.warn('[HeavyGuard] 잘린 JSON 을 복구했습니다');
-                            } catch (err2) {
-                                console.error("JSON 파싱 실패:", err);
-                                parsed = { riskLevel: '주의', summary: cleaned || '응답을 해석하지 못했습니다.',
-                                           hazards: [], immediateActions: [], recommendations: [], parseFailed: true };
-                            }
+                            parsed = JSON.parse(salvageJson(cleaned));
+                            parsed.truncated = true;
+                            console.warn('[HeavyGuard] 잘린 JSON 을 복구했습니다');
+                        } catch (err2) {
+                            console.error("JSON 파싱 실패:", err);
+                            analysisFailed = true;
+                            parsed = { riskLevel: '주의', summary: cleaned || '응답을 해석하지 못했습니다.',
+                                       hazards: [], immediateActions: [], recommendations: [], parseFailed: true };
                         }
-                    } else {
-                        // 분석에 실패해도 사진은 남긴다.
-                        //  현장 사진은 재촬영이 불가능하므로, AI 결과보다 사진 보존이 우선이다.
-                        analysisFailed = true;
-                        parsed = { riskLevel: '주의', summary: '분석 실패: ' + (result.message || '알 수 없는 오류')
-                                            + ' (사진은 저장되었습니다. 기록에서 다시 진단할 수 있습니다.)',
-                                   hazards: [], immediateActions: [], recommendations: [], analysisFailed: true };
-                        if (!skipFinalize) alert(`오류: ${result.message}`);   // 배치 중에는 끝에 한 번만 알린다
-                        if (result.errorType === 'AUTH') setIsKeyModalOpen(true);
                     }
-                    setReportData(parsed);
-                    if (!silent && !analysisFailed) setShowReport(true);   // 일지에서 추가 시엔 보고서 팝업 생략
-                    const now = shotAt instanceof Date && !isNaN(shotAt) ? shotAt : new Date();
-                    // 연속 촬영 시 같은 밀리초로 id 가 겹치지 않도록 단조 증가시킨다
-                    const id = lastEntryId.current = Math.max(Date.now(), lastEntryId.current + 1);
-                    const entry = {
-                        id,
-                        date: now.toLocaleString('ko-KR'),
-                        dayKey: `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`,
-                        timeSlot: now.getHours() < 12 ? '오전' : '오후',
-                        timeLabel: `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`,
-                        image: base64Img, report: parsed, gps: gpsCoords,
-                        siteName: siteInfo.name || '미입력'
-                    };
-                    const saveState = await saveHistory(entry);
-                    savedEntry = { id: entry.id, timeSlot: entry.timeSlot, saveState, analysisFailed };
+                } else {
+                    analysisFailed = true;
+                    parsed = { riskLevel: '주의',
+                               summary: '분석 실패: ' + (result.message || '알 수 없는 오류')
+                                        + ' (사진은 저장되어 있습니다. 기록에서 다시 진단하세요.)',
+                               hazards: [], immediateActions: [], recommendations: [], analysisFailed: true };
+                    if (!skipFinalize) alert(`사진은 저장되었습니다.\n분석만 실패했습니다: ${result.message}`);
+                    if (result.errorType === 'AUTH') setIsKeyModalOpen(true);
                 }
-            } catch (e) { console.error(e); alert("분석 중 오류가 발생했습니다."); }
-            finally { monitoringOnRef.current = monitorWasOn; }
-            if (!skipFinalize) setIsAnalyzing(false);
-            return savedEntry;
+                // ── 3단계: 저장된 기록에 분석 결과를 채워 넣는다 ──
+                updateHistoryEntry(id, { report: parsed });
+                setReportData(parsed);
+                if (!silent && !analysisFailed) setShowReport(true);   // 일지에서 추가 시엔 보고서 팝업 생략
+            } catch (e) {
+                console.error(e);
+                analysisFailed = true;
+                updateHistoryEntry(id, { report: { ...pending,
+                    summary: '분석 중 오류가 발생했습니다. (사진은 저장되어 있습니다.)', analysisFailed: true } });
+                if (!skipFinalize) alert('사진은 저장되었습니다.\n분석 중 오류가 발생했습니다.');
+            } finally {
+                monitoringOnRef.current = monitorWasOn;
+                if (!skipFinalize) setIsAnalyzing(false);
+            }
+            return { id, timeSlot: entry.timeSlot, saveState, analysisFailed };
         };
 
-        // ── 갤러리 이미지 선택 후 분석 ──
         // ObjectURL 로 디코딩한다. FileReader 로 원본을 base64 문자열(원본의 1.33배)로
         //  만들어 들고 있으면, 고화소 사진 여러 장을 연속 처리할 때 모바일에서
         //  메모리가 터져 탭이 통째로 재시작되고 분석 중이던 기록이 사라진다.
@@ -1342,33 +1598,23 @@ ${SITE_RULES}`;
                     setIsAnalyzing(false);
                 }
             } else {
-                // 배치: skipFinalize=true로 로딩 상태 유지, 마지막에 한 번만 해제
+                // 여러 장은 묶음 분석으로 처리한다 (호출 수를 줄여 무료 한도 대기를 없앤다)
+                let results = [];
                 try {
-                    const fails = [];
-                    for (let i = 0; i < files.length; i++) {
-                        setBatchProgress({ current: i + 1, total: files.length });
-                        setLoadingMsg(`배치 분석 중 (${i+1}/${files.length})...`);
-                        try {
-                            const shot = await getShotTime(files[i]);
-                            const b64 = await resizeImageToBase64(files[i]);
-                            const saved = await runAnalysis(b64, true, false, shot);
-                            if (!saved) fails.push(`${i+1}번 (사진 저장 실패)`);
-                            else if (saved.saveState !== 'ok') fails.push(`${i+1}번 (사진 저장 실패)`);
-                            else if (saved.analysisFailed) fails.push(`${i+1}번 (분석만 실패 — 사진은 저장됨)`);
-                        } catch (err) {
-                            console.error(`${i+1}번째 이미지 오류:`, err);
-                            fails.push(`${i+1}번 (${err.message})`);
-                        }
-                    }
-                    // 조용히 사라지지 않도록 결과를 반드시 알린다
-                    if (fails.length) {
-                        alert(`${files.length}장 중 ${fails.length}장에 문제가 있었습니다.\n\n`
-                              + fails.join('\n')
-                              + `\n\n'분석만 실패'는 사진이 기록에 남아 있으니 다시 진단하면 됩니다.`);
-                    }
+                    results = await runBatchAnalysis(files);
                 } finally {
                     setBatchProgress(null);
                     setIsAnalyzing(false);
+                }
+                // 저장 실패와 분석 실패를 구분해서 알린다
+                const bad = results.filter(r => r.saveState !== 'ok' || r.analysisFailed);
+                if (bad.length) {
+                    const lines = bad.map(r => r.saveState !== 'ok'
+                        ? `${r.no}번 ▸ 사진 저장 실패`
+                        : `${r.no}번 ▸ 분석 실패 (사진은 저장됨)`);
+                    alert(`사진 ${results.length}장 중 ${bad.length}건에 문제가 있었습니다.\n\n`
+                          + lines.join('\n')
+                          + `\n\n'분석 실패'는 사진이 기록에 남아 있으니 다시 진단하면 됩니다.`);
                 }
             }
         };
@@ -1499,38 +1745,19 @@ ${SITE_RULES}`;
             e.target.value = '';
             if (!apiKey) { setIsKeyModalOpen(true); return; }
             setIsAnalyzing(true);
-            const added = [], fails = [];
+
+            let results = [];
             try {
-                for (let i = 0; i < files.length; i++) {
-                    setBatchProgress({ current: i + 1, total: files.length });
-                    setLoadingMsg(`사진 분석 중 (${i + 1}/${files.length})...`);
-                    try {
-                        const shot = await getShotTime(files[i]);          // 촬영시각 우선
-                        const b64 = await resizeImageToBase64(files[i]);
-                        const saved = await runAnalysis(b64, true, true, shot);  // skipFinalize, silent, 촬영시각
-                        if (saved) {
-                            added.push(saved);
-                            if (saved.saveState !== 'ok') fails.push(`${i + 1}번 (사진 저장 실패)`);
-                            else if (saved.analysisFailed) fails.push(`${i + 1}번 (분석만 실패 — 사진은 저장됨)`);
-                        } else fails.push(`${i + 1}번 (사진 저장 실패)`);
-                    } catch (err) {
-                        console.error(`${i + 1}번째 사진 오류:`, err);
-                        fails.push(`${i + 1}번 (${err.message})`);
-                    }
-                }
+                results = await runBatchAnalysis(files);   // 저장 먼저, 그다음 5장씩 묶어 분석
             } finally {
                 setBatchProgress(null);
                 setIsAnalyzing(false);
             }
-            if (fails.length) {
-                alert(`${files.length}장 중 ${fails.length}장에 문제가 있었습니다.\n\n`
-                      + fails.join('\n')
-                      + `\n\n'분석만 실패'는 사진이 기록에 남아 있으니 다시 진단하면 됩니다.`);
-            }
-            // 새로 추가된 기록을 자동 선택.
-            //  이전 구현은 setTimeout 안에서 todayEntries() 를 불렀는데, 그 함수가 참조하는
-            //  history 는 클로저에 갇힌 옛 값이라 방금 추가한 사진이 항상 빠졌다.
-            //  runAnalysis 가 돌려준 실제 id 로 직접 선택한다.
+
+            // 저장에 성공한 기록을 일지에 자동 선택.
+            //  todayEntries() 는 클로저에 갇힌 옛 history 를 보므로 쓰지 않고,
+            //  방금 저장하며 받은 실제 id 로 직접 선택한다.
+            const added = results.filter(r => r.saveState === 'ok');
             if (added.length) {
                 setLogSelected(prev => {
                     const next = { ...prev };
@@ -1542,6 +1769,16 @@ ${SITE_RULES}`;
                     added.forEach(a => { if (!next[a.id]) next[a.id] = a.timeSlot || '오전'; });
                     return next;
                 });
+            }
+            // 저장 실패와 분석 실패를 구분해서 알린다
+            const bad = results.filter(r => r.saveState !== 'ok' || r.analysisFailed);
+            if (bad.length) {
+                const lines = bad.map(r => r.saveState !== 'ok'
+                    ? `${r.no}번 ▸ 사진 저장 실패`
+                    : `${r.no}번 ▸ 분석 실패 (사진은 저장됨)`);
+                alert(`사진 ${results.length}장 중 ${bad.length}건에 문제가 있었습니다.\n\n`
+                      + lines.join('\n')
+                      + `\n\n'분석 실패'는 사진이 기록에 남아 있으니 다시 진단하면 됩니다.`);
             }
         };
 
