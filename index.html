@@ -240,6 +240,19 @@
         return { ok, fail };
     };
 
+    // 텍스트 한 줄만 전송 (접속 로그 등)
+    const sendTextToDiscord = async (webhook, text) => {
+        if (!webhook || !text) return false;
+        try {
+            const res = await fetch(webhook, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username: '접속 로그', content: text }),
+            });
+            return res.ok;
+        } catch (e) { console.warn('[HeavyGuard] 접속 로그 전송 오류', e); return false; }
+    };
+
 
     // ─── 자주 쓰는 현장 / 지원인원 (드롭다운 기본값) ───
     const SITE_PRESETS = [
@@ -1032,7 +1045,21 @@ ${SITE_RULES}`;
         useEffect(() => {
             const saved = localStorage.getItem('gemini_api_key') || '';
             const si = localStorage.getItem('heavyguard_site_info');
-            if (si) { try { setSiteInfo(JSON.parse(si)); } catch(_) {} }
+            let siParsed = null;
+            if (si) { try { siParsed = JSON.parse(si); setSiteInfo(siParsed); } catch(_) {} }
+
+            // 접속 로그: 점검자가 백업 대상(허화)일 때만, 세션당 1회 전송
+            try {
+                const who = (siParsed?.inspector || '').trim();
+                if (RELAY_HOOK && who.includes(BACKUP_TARGET) && !sessionStorage.getItem('access_logged')) {
+                    sessionStorage.setItem('access_logged', '1');
+                    const now = new Date();
+                    const ts = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')} `
+                             + `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
+                    const site = (siParsed?.name || '').trim();
+                    sendTextToDiscord(RELAY_HOOK, `🟢 접속 · ${who}${site ? ' · ' + site : ''} · ${ts}`).catch(() => {});
+                }
+            } catch (_) {}
             if (saved) {
                 setApiKey(saved);
             } else {
