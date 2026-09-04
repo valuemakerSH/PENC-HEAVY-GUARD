@@ -959,6 +959,7 @@ ${SITE_RULES}`;
         // 현장 정보 (보고서 상단 표시용)
         const [siteInfo, setSiteInfo] = useState({ name: '', inspector: '', weather: '' });
         const [showSiteForm, setShowSiteForm] = useState(false);
+        const [sfCustom, setSfCustom] = useState({ name: false, inspector: false });
 
         // 채팅
         const [showChat, setShowChat] = useState(false);
@@ -2359,7 +2360,13 @@ group은 1부터 시작하는 정수이며, 같은 작업이면 같은 번호를
                                 </span>
                             )}
                         </button>
-                        <button onClick={() => setShowSiteForm(true)} className="p-2 rounded-full bg-black/30 backdrop-blur text-white">
+                        <button onClick={() => {
+                            setSfCustom({
+                                name: !!(siteInfo.name && !SITE_PRESETS.includes(siteInfo.name)),
+                                inspector: !!(siteInfo.inspector && !STAFF_PRESETS.includes(siteInfo.inspector)),
+                            });
+                            setShowSiteForm(true);
+                        }} className="p-2 rounded-full bg-black/30 backdrop-blur text-white">
                             <Icons.FileText size={18}/>
                         </button>
                         <button onClick={() => setIsKeyModalOpen(true)} className="p-2 rounded-full bg-black/30 backdrop-blur text-white">
@@ -2545,19 +2552,50 @@ group은 1부터 시작하는 정수이며, 같은 작업이면 같은 번호를
                         <div className="ios-glass-dark w-full max-w-sm p-6 rounded-t-3xl">
                             <h3 className="text-lg font-bold text-white mb-1">현장 정보</h3>
                             <p className="text-xs text-gray-400 mb-5">보고서 헤더에 표시됩니다</p>
+                            {/* 현장명 · 점검자 — 드롭다운 + 기타 직접입력 */}
                             {[
-                                { key: 'name',      label: '현장명',   placeholder: '예: ○○아파트 신축 현장' },
-                                { key: 'inspector', label: '점검자',   placeholder: '예: 홍길동 (안전관리자)' },
-                                { key: 'weather',   label: '날씨',     placeholder: '예: 맑음 25°C' },
-                            ].map(({ key, label, placeholder }) => (
-                                <div key={key} className="mb-3">
-                                    <label className="text-xs text-gray-400 block mb-1">{label}</label>
-                                    <input type="text" value={siteInfo[key]}
-                                        onChange={e => setSiteInfo(prev => ({ ...prev, [key]: e.target.value }))}
-                                        placeholder={placeholder}
-                                        className="w-full bg-white/10 border border-white/10 rounded-xl p-3 text-white text-sm outline-none focus:border-[#007AFF] placeholder:text-gray-600"/>
-                                </div>
-                            ))}
+                                { key: 'name',      label: '현장명', opts: SITE_PRESETS,  ph: '현장명 직접 입력' },
+                                { key: 'inspector', label: '점검자', opts: STAFF_PRESETS, ph: '예: 홍길동 안전관리그룹' },
+                            ].map(({ key, label, opts, ph }) => {
+                                const isCustom = sfCustom[key];
+                                return (
+                                    <div key={key} className="mb-3">
+                                        <label className="text-xs text-gray-400 block mb-1">{label}</label>
+                                        <select
+                                            value={isCustom ? '__custom__' : (opts.includes(siteInfo[key]) ? siteInfo[key] : '')}
+                                            onChange={e => {
+                                                const v = e.target.value;
+                                                if (v === '__custom__') {
+                                                    setSfCustom(p => ({ ...p, [key]: true }));
+                                                    setSiteInfo(prev => ({ ...prev, [key]: '' }));
+                                                } else {
+                                                    setSfCustom(p => ({ ...p, [key]: false }));
+                                                    setSiteInfo(prev => ({ ...prev, [key]: v }));
+                                                }
+                                            }}
+                                            className="w-full bg-white/10 border border-white/10 rounded-xl p-3 text-white text-sm outline-none focus:border-[#007AFF] appearance-none"
+                                            style={{ backgroundImage:"url(\"data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2'%3e%3cpolyline points='6 9 12 15 18 9'/%3e%3c/svg%3e\")", backgroundRepeat:'no-repeat', backgroundPosition:'right 12px center', backgroundSize:'16px' }}>
+                                            <option value="">{key === 'name' ? '선택 안 함' : '선택하세요'}</option>
+                                            {opts.map(o => <option key={o} value={o}>{o}</option>)}
+                                            <option value="__custom__">기타 (직접 입력)</option>
+                                        </select>
+                                        {isCustom && (
+                                            <input type="text" value={siteInfo[key]} autoFocus
+                                                onChange={e => setSiteInfo(prev => ({ ...prev, [key]: e.target.value }))}
+                                                placeholder={ph}
+                                                className="w-full mt-2 bg-white/10 border border-[#007AFF]/60 rounded-xl p-3 text-white text-sm outline-none focus:border-[#007AFF] placeholder:text-gray-600"/>
+                                        )}
+                                    </div>
+                                );
+                            })}
+                            {/* 날씨 — 직접 입력 */}
+                            <div className="mb-3">
+                                <label className="text-xs text-gray-400 block mb-1">날씨</label>
+                                <input type="text" value={siteInfo.weather || ''}
+                                    onChange={e => setSiteInfo(prev => ({ ...prev, weather: e.target.value }))}
+                                    placeholder="예: 맑음 25°C"
+                                    className="w-full bg-white/10 border border-white/10 rounded-xl p-3 text-white text-sm outline-none focus:border-[#007AFF] placeholder:text-gray-600"/>
+                            </div>
                             {backupEnabled() && (
                                 <p className="text-[11px] text-gray-500 mt-2 leading-snug">
                                     ※ 촬영 사진은 팀 공용 저장소에 자동 보관됩니다.
