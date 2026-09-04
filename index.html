@@ -1326,23 +1326,33 @@ ${SITE_RULES}`;
 
         // skipFinalize=true 시 setIsAnalyzing(false) 를 호출하지 않음 (배치 모드에서 사용)
         // 사진 1장을 기록에 먼저 저장한다 (분석 결과는 나중에 채워 넣는다)
+        //
+        //  날짜에 두 가지 의미가 섞여 있어 구분한다:
+        //   · dayKey   = '이 기록을 남긴 날' → 일일 지원일지가 묶는 단위
+        //   · date/시각 = '사진을 찍은 시각'  → 보고서에 표기하는 값
+        //  둘을 모두 촬영시각으로 잡았더니, 어제 찍은 사진을 오늘 불러오면
+        //  dayKey 가 어제가 되어 오늘 일지 목록에 아예 나타나지 않았다.
         const savePhotoEntry = async (base64Img, shotAt) => {
-            const now = shotAt instanceof Date && !isNaN(shotAt) ? shotAt : new Date();
+            const shot = shotAt instanceof Date && !isNaN(shotAt) ? shotAt : new Date();
+            const today = new Date();
+            const pad2 = (v) => String(v).padStart(2, '0');
             // 연속 촬영 시 같은 밀리초로 id 가 겹치지 않도록 단조 증가시킨다
             const id = lastEntryId.current = Math.max(Date.now(), lastEntryId.current + 1);
             const pending = { riskLevel: '주의', summary: '분석 대기 중입니다. 기록에서 다시 진단할 수 있습니다.',
                               hazards: [], immediateActions: [], recommendations: [], pending: true };
             const entry = {
                 id,
-                date: now.toLocaleString('ko-KR'),
-                dayKey: `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`,
-                timeSlot: now.getHours() < 12 ? '오전' : '오후',
-                timeLabel: `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`,
+                date: shot.toLocaleString('ko-KR'),                     // 보고서 표기용 (촬영시각)
+                shotISO: shot.toISOString(),
+                dayKey: `${today.getFullYear()}-${pad2(today.getMonth() + 1)}-${pad2(today.getDate())}`,
+                timeSlot: shot.getHours() < 12 ? '오전' : '오후',
+                timeLabel: `${pad2(shot.getHours())}:${pad2(shot.getMinutes())}`,
                 image: base64Img, report: pending, gps: gpsCoords,
                 siteName: siteInfo.name || '미입력'
             };
             const saveState = await saveHistory(entry);
-            console.info('[HeavyGuard] 사진 저장', saveState === 'ok' ? '성공' : '실패(' + saveState + ')', 'id=' + id);
+            console.info('[HeavyGuard] 사진 저장', saveState === 'ok' ? '성공' : '실패(' + saveState + ')',
+                         'id=' + id, 'dayKey=' + entry.dayKey, '촬영=' + entry.timeLabel);
             return { id, timeSlot: entry.timeSlot, saveState, pending };
         };
 
@@ -1463,32 +1473,16 @@ ${SITE_RULES}`;
             console.info('[HeavyGuard] 분석 시작 (이미지', Math.round(base64Img.length / 1024), 'KB)');
             setCapturedImage(base64Img);
 
-            const now = shotAt instanceof Date && !isNaN(shotAt) ? shotAt : new Date();
-            // 연속 촬영 시 같은 밀리초로 id 가 겹치지 않도록 단조 증가시킨다
-            const id = lastEntryId.current = Math.max(Date.now(), lastEntryId.current + 1);
-            const pending = { riskLevel: '주의', summary: '분석 대기 중입니다. 기록에서 다시 진단할 수 있습니다.',
-                              hazards: [], immediateActions: [], recommendations: [], pending: true };
-            const entry = {
-                id,
-                date: now.toLocaleString('ko-KR'),
-                dayKey: `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`,
-                timeSlot: now.getHours() < 12 ? '오전' : '오후',
-                timeLabel: `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`,
-                image: base64Img, report: pending, gps: gpsCoords,
-                siteName: siteInfo.name || '미입력'
-            };
-
-            // ── 1단계: 저장 ──
+            // ── 1단계: 저장 ── (묶음 분석과 동일한 저장 경로를 쓴다)
             if (!skipFinalize) setLoadingMsg('사진을 저장하는 중...');
-            const saveState = await saveHistory(entry);
-            console.info('[HeavyGuard] 사진 저장', saveState === 'ok' ? '성공' : '실패(' + saveState + ')', 'id=' + id);
+            const { id, timeSlot, saveState, pending } = await savePhotoEntry(base64Img, shotAt);
             if (saveState !== 'ok') {
                 // 저장 자체가 실패한 경우 — 분석해봐야 남길 곳이 없다
                 if (!skipFinalize) {
                     setIsAnalyzing(false);
                     alert('사진을 저장하지 못했습니다.\n브라우저의 저장공간이 막혀 있거나 가득 찼을 수 있습니다.\n(시크릿 모드에서는 저장되지 않습니다)');
                 }
-                return { id, timeSlot: entry.timeSlot, saveState, analysisFailed: false };
+                return { id, timeSlot, saveState, analysisFailed: false };
             }
 
             // ── 2단계: 분석 ──
@@ -1496,7 +1490,7 @@ ${SITE_RULES}`;
                 console.warn('[HeavyGuard] API 키 없음 → 분석 생략 (사진은 저장됨)');
                 setIsKeyModalOpen(true);
                 if (!skipFinalize) setIsAnalyzing(false);
-                return { id, timeSlot: entry.timeSlot, saveState, analysisFailed: true };
+                return { id, timeSlot, saveState, analysisFailed: true };
             }
 
             let analysisFailed = false;
@@ -1549,7 +1543,7 @@ ${SITE_RULES}`;
                 monitoringOnRef.current = monitorWasOn;
                 if (!skipFinalize) setIsAnalyzing(false);
             }
-            return { id, timeSlot: entry.timeSlot, saveState, analysisFailed };
+            return { id, timeSlot, saveState, analysisFailed };
         };
 
         // ObjectURL 로 디코딩한다. FileReader 로 원본을 base64 문자열(원본의 1.33배)로
