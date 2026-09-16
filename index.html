@@ -1926,17 +1926,19 @@ ${SITE_RULES}`;
                 const existing = (logMeta.requests || '').split('\n').map(s => s.trim()).filter(Boolean);
                 const hasReq = existing.length > 0;
 
-                const prompt = `당신은 포스코이앤씨 소속으로 건설현장 안전관리 일일 지원을 수행한 담당자입니다.
-아래 AI 안전진단 결과를 바탕으로 '현장 안전관리 일일 지원결과 공유' 보고서를 작성하세요.
+                const prompt = `당신은 포스코이앤씨 소속으로, 현장에 나가 작업 상태를 눈으로 점검하고 지원하는 담당자입니다.
+(안전 전문가나 안전관리자가 아니라, 현장 상태를 살펴보고 확인하는 지원 역할입니다.)
+아래 AI 진단 결과를 바탕으로 '현장 안전관리 일일 지원결과 공유' 보고서를 작성하세요.
 
 ${hasReq
   ? `[Ⅱ. 지원 업무]는 이미 아래와 같이 작성되어 있습니다. 이를 참고하되 수정하지 말고, requests는 빈 배열로 반환하세요.
 ${existing.map((r, i) => `${i + 1}) ${r}`).join('\n')}`
-  : `[Ⅱ. 지원 업무 — 현장으로부터 지원 요청 받은 사항]을 오늘 확인한 작업들을 근거로 3~4개 항목으로 정리하세요.
+  : `[Ⅱ. 지원 업무 — 현장으로부터 지원 요청 받은 사항]을 오늘 사진 속 작업 내용과 확인한 위험요소를 근거로 역으로 정리하세요. 3~4개 항목.
    각 항목은 30자 이내의 짧은 구(句)로 쓰고, 괄호 설명을 늘어놓지 마세요.
    예시 문체: "중장비(항타기, 기중기, 굴착기, 천공기) 작업 시 주변 통제 확인" / "PRD 용접작업 시 주변 화재예방 관리" / "CCTV 모니터링"`}
 
-[Ⅲ. 지원 결과]는 "무슨 작업에 어떤 안전지원을 했는지"를 line에, 구체적으로 확인·조치한 내용을 sub에 작성하세요.
+[Ⅲ. 지원 결과]는 "무슨 작업의 상태를 어떻게 점검·지원했는지"를 line에, 구체적으로 확인한 내용을 sub에 작성하세요.
+작성자는 안전 전문가가 아니므로 '조치하였음', '시정 지시' 같은 표현 대신 '상태 확인', '상태점검 지원', '통제 상태 확인' 같은 관찰·확인 중심 표현을 쓰세요.
 
 【같은 작업 묶기 — 매우 중요】
 이 보고서는 A4 한 장에 담기는 것이 원칙입니다. 항목이 많으면 여러 장으로 넘어가 반려됩니다.
@@ -1956,16 +1958,16 @@ ${existing.map((r, i) => `${i + 1}) ${r}`).join('\n')}`
 5. note(특이사항)는 60자 이내 1문장. 없으면 빈 문자열.
 
 【실제 사내 보고서 예시 — 이 문체를 그대로 따르세요】
-line: "중장비(항타기, 기중기, 굴착기) 작업 시 주변 통제 상태 안전지원"
-sub:  "전도방지 철판 위치, 장비 운용 시 유도원을 통해 주변 근로자 통제 확인"
+line: "중장비(항타기, 기중기, 굴착기) 작업 구간 주변 통제 상태점검 지원"
+sub:  "전도방지 철판 설치 위치, 장비 운용 시 유도원 배치 및 주변 근로자 통제 상태 확인"
 
-line: "램프 조성 및 성토 작업 시 주변 통제 상태 안전지원"
-sub:  "근로자 접근통제, 유도원 배치 확인"
+line: "램프 조성 및 성토 작업 구간 주변 통제 상태점검 지원"
+sub:  "근로자 접근통제 여부, 유도원 배치 상태 확인"
 
-line: "용접작업 시 주변 인화성 물질 확인 통한 화재예방 및 작업자 복장 확인"
-sub:  "불티 비산으로 인한 가연성 인화물질 화재 가능 여부 등 위험요소 확인"
+line: "용접작업 구간 주변 인화성 물질 및 작업자 복장 상태점검 지원"
+sub:  "불티 비산 대비 가연성 물질 정리 상태, 작업자 보호구 착용 상태 확인"
 
-line: "개구부 작업시 근로자 안전고리 체결 여부 지속 확인"
+line: "개구부 인접 작업 구간 근로자 안전고리 체결 상태점검 지원"
 sub:  ""
 
 【입력 데이터】
@@ -2118,9 +2120,12 @@ group은 1부터 시작하는 정수이며, 같은 작업이면 같은 번호를
             //  원본은 x=1.40 / 4.36, w=2.76, h=1.18 로 배치돼 있고,
             //  이 낮은 높이 덕분에 사진 3줄(6장)이 1페이지에 들어간다.
             //  기존 2.10 은 거의 두 배라 3줄이면 무조건 3페이지가 됐다.
-            const BOX2_W = 2.76, BOX2_H = 1.00;
+            // 사진 고정 크기: 폭 7cm × 높이 2cm (요청 사양). cm→inch 환산.
+            const CM = 1 / 2.54;
+            const PIC_W = 7 * CM, PIC_H = 2 * CM;   // 2.756 x 0.787 in
+            const BOX2_W = PIC_W, BOX2_H = PIC_H;
             const BOX2_X = [1.40, 4.36];
-            const BOX1_W = 3.60, BOX1_H = 1.10;   // 1장짜리 묶음도 2장 묶음과 비슷한 높이여야 1페이지에 들어간다
+            const BOX1_W = PIC_W, BOX1_H = PIC_H;
             // 12pt 기준 줄높이
             const LH = 0.20, LH_SUB = 0.19;
             // 사진 아래 / 묶음 사이 여백 (사내 양식 실측 기준으로 축소)
@@ -2168,8 +2173,7 @@ group은 1부터 시작하는 정수이며, 같은 작업이면 같은 번호를
                 let h = nLines(clamp(head.line, LINE_MAX), 40) * LH;
                 if (head.sub) h += nLines(clamp(head.sub, SUB_MAX), 40) * LH_SUB + 0.02;
                 const np = g.items.filter(x => x.entry?.image).length;
-                if (np >= 2) h += BOX2_H + PIC_GAP;
-                else if (np === 1) h += BOX1_H + PIC_GAP;
+                h += Math.min(np, 2) * (PIC_H + PIC_GAP);
                 return h + GRP_GAP;
             };
             // startY에서 들어가는 묶음 개수 (남은 공간을 최대한 채움)
@@ -2222,22 +2226,13 @@ group은 1부터 시작하는 정수이며, 같은 작업이면 같은 번호를
                         ty += sh + 0.02;
                     }
                     const pics = g.items.filter(x => x.entry?.image);
-                    if (pics.length >= 2) {
-                        pics.slice(0, 2).forEach((p, i) => {
-                            const dim = dims.get(p.entry.image) || { w: 4, h: 3 };
-                            const f = fitBox(BOX2_X[i], ty + 0.02, BOX2_W, BOX2_H, dim.w, dim.h);
-                            try { s.addImage({ data: p.entry.image, x: f.x, y: f.y, w: f.w, h: f.h }); }
-                            catch (e) { console.warn('이미지 삽입 실패', e); }
-                        });
-                        ty += BOX2_H + PIC_GAP;
-                    } else if (pics.length === 1) {
-                        const dim = dims.get(pics[0].entry.image) || { w: 4, h: 3 };
-                        const bx = C2_X + (C2_W - BOX1_W) / 2;
-                        const f = fitBox(bx, ty + 0.02, BOX1_W, BOX1_H, dim.w, dim.h);
-                        try { s.addImage({ data: pics[0].entry.image, x: f.x, y: f.y, w: f.w, h: f.h }); }
+                    // 고정 크기(7cm x 2cm)로 꽉 채워 삽입. 여러 장이면 세로로 나열.
+                    const bx = C2_X + (C2_W - PIC_W) / 2;
+                    pics.slice(0, 2).forEach((p) => {
+                        try { s.addImage({ data: p.entry.image, x: bx, y: ty + 0.02, w: PIC_W, h: PIC_H }); }
                         catch (e) { console.warn('이미지 삽입 실패', e); }
-                        ty += BOX1_H + PIC_GAP;
-                    }
+                        ty += PIC_H + PIC_GAP;
+                    });
                     ty += GRP_GAP;
                 });
 
