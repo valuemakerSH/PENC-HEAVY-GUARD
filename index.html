@@ -2126,13 +2126,23 @@ group은 1부터 시작하는 정수이며, 같은 작업이면 같은 번호를
             // 사진 고정 크기: 폭 7cm × 높이 2cm (요청 사양). cm→inch 환산.
             const CM = 1 / 2.54;
             const PIC_W = 7 * CM, PIC_H = 2 * CM;   // 2.756 x 0.787 in
+            // 2장 좌우 배치: 셀(16.1cm) 안에 7cm 2장을 간격 두고 나란히
+            const PIC_PAIR_GAP = 0.10;   // 3칸 들여쓰기 기준 사진 간격
+            const PAIR_TOTAL = PIC_W * 2 + PIC_PAIR_GAP;
             const BOX2_W = PIC_W, BOX2_H = PIC_H;
             const BOX2_X = [1.40, 4.36];
             const BOX1_W = PIC_W, BOX1_H = PIC_H;
             // 12pt 기준 줄높이
-            const LH = 0.20, LH_SUB = 0.19;
+            // 줄간격 18pt(=0.25in) 통일, 요소 사이 간격도 GAP 하나로 일정하게
+            const LH = 18/72, LH_SUB = 18/72;   // 0.25in — 요청 줄간격 17~19의 중간값
+            const GAP = 0.10;                    // 글↔글, 글↔사진, 항목↔항목 공통 간격
+            // 계단식 들여쓰기: 설명(•) 1칸 → 세부(→) 2칸 → 사진 4칸. 1칸 = 0.18in
+            const IND = 0.18;
+            const IND_LINE = C2_X + IND;         // • 설명
+            const IND_SUB  = C2_X + IND * 2;     // → 세부
+            const IND_PIC  = C2_X + IND * 3;     // 사진 (3칸: 7cm 2장 유지 + 오른쪽 여백 확보)
             // 사진 아래 / 묶음 사이 여백 (사내 양식 실측 기준으로 축소)
-            const PIC_GAP = 0.08, GRP_GAP = 0.04;
+            const PIC_GAP = GAP, GRP_GAP = GAP;   // 통일
 
             const newSlide = (contTitle) => {
                 const s = pptx.addSlide();
@@ -2174,10 +2184,10 @@ group은 1부터 시작하는 정수이며, 같은 작업이면 같은 번호를
             const groupH = (g) => {
                 const head = g.items[0];
                 let h = nLines(clamp(head.line, LINE_MAX), 40) * LH;
-                if (head.sub) h += nLines(clamp(head.sub, SUB_MAX), 40) * LH_SUB + 0.02;
+                if (head.sub) h += nLines(clamp(head.sub, SUB_MAX), 40) * LH_SUB;
                 const np = g.items.filter(x => x.entry?.image).length;
-                h += Math.min(np, 2) * (PIC_H + PIC_GAP);
-                return h + GRP_GAP;
+                if (np > 0) h += GAP + PIC_H;   // 글↔사진 간격 + 사진 1줄
+                return h + GAP;                  // 항목↔항목 간격
             };
             // startY에서 들어가는 묶음 개수 (남은 공간을 최대한 채움)
             const fitGroups = (startY, gs) => {
@@ -2219,24 +2229,34 @@ group은 1부터 시작하는 정수이며, 같은 작업이면 같은 번호를
                     const head = g.items[0];
                     const lineT = clamp(head.line, LINE_MAX), subT = clamp(head.sub, SUB_MAX);
                     const lh = nLines(lineT, 40) * LH;
-                    s.addText(`• ${lineT}`, { x: C2_X + 0.10, y: ty, w: C2_W - 0.20, h: lh,
+                    s.addText(`• ${lineT}`, { x: IND_LINE, y: ty, w: C2_W - IND - 0.10, h: lh,
                         fontSize: SZ_BODY, color: '000000', fontFace: FONT, valign: 'top' });
                     ty += lh;
                     if (subT) {
                         const sh = nLines(subT, 40) * LH_SUB;
-                        s.addText(`→ ${subT}`, { x: C2_X + 0.28, y: ty, w: C2_W - 0.38, h: sh,
+                        s.addText(`→ ${subT}`, { x: IND_SUB, y: ty, w: C2_W - IND * 2 - 0.10, h: sh,
                             fontSize: SZ_BODY, color: '000000', fontFace: FONT, valign: 'top' });
-                        ty += sh + 0.02;
+                        ty += sh;
                     }
                     const pics = g.items.filter(x => x.entry?.image);
-                    // 고정 크기(7cm x 2cm)로 꽉 채워 삽입. 여러 장이면 세로로 나열.
-                    const bx = C2_X + (C2_W - PIC_W) / 2;
-                    pics.slice(0, 2).forEach((p) => {
-                        try { s.addImage({ data: p.entry.image, x: bx, y: ty + 0.02, w: PIC_W, h: PIC_H }); }
+                    if (pics.length) ty += GAP;   // 글↔사진 간격도 동일
+                    // 고정 크기(7cm x 2cm). 2장이면 좌우로 나란히, 1장이면 가운데.
+                    const shown = pics.slice(0, 2);
+                    if (shown.length === 2) {
+                        const startX = IND_PIC;   // 네 칸 들여쓰기, 왼쪽 정렬
+                        shown.forEach((p, i) => {
+                            const px = startX + i * (PIC_W + PIC_PAIR_GAP);
+                            try { s.addImage({ data: p.entry.image, x: px, y: ty, w: PIC_W, h: PIC_H }); }
+                            catch (e) { console.warn('이미지 삽입 실패', e); }
+                        });
+                        ty += PIC_H;
+                    } else if (shown.length === 1) {
+                        const bx = IND_PIC;   // 네 칸 들여쓰기
+                        try { s.addImage({ data: shown[0].entry.image, x: bx, y: ty, w: PIC_W, h: PIC_H }); }
                         catch (e) { console.warn('이미지 삽입 실패', e); }
-                        ty += PIC_H + PIC_GAP;
-                    });
-                    ty += GRP_GAP;
+                        ty += PIC_H;
+                    }
+                    ty += GAP;   // 항목↔항목 간격 (글↔사진과 동일)
                 });
 
                 return HDR_H + bodyH;
@@ -2874,11 +2894,13 @@ group은 1부터 시작하는 정수이며, 같은 작업이면 같은 번호를
                                                                                 <p className="text-[11.5px] leading-snug">• {head.line}</p>
                                                                                 {head.sub && <p className="text-[11.5px] leading-snug pl-2.5">→ {head.sub}</p>}
                                                                                 {pics.length > 0 && (
-                                                                                    <div className={`mt-1 flex justify-center gap-2 ${pics.length >= 2 ? '' : ''}`}>
+                                                                                    <div className="mt-1 flex justify-center gap-2">
                                                                                         {pics.slice(0, 2).map((p, i) => (
-                                                                                            <img key={i} src={p.entry.image} alt=""
-                                                                                                 className="object-contain"
-                                                                                                 style={{ maxWidth: pics.length >= 2 ? '46%' : '68%', maxHeight: '140px' }}/>
+                                                                                            <div key={i} className="bg-gray-100 overflow-hidden"
+                                                                                                 style={{ width: pics.length >= 2 ? '48%' : '70%', aspectRatio: '7 / 2' }}>
+                                                                                                <img src={p.entry.image} alt=""
+                                                                                                     className="w-full h-full" style={{ objectFit: 'cover' }}/>
+                                                                                            </div>
                                                                                         ))}
                                                                                     </div>
                                                                                 )}
